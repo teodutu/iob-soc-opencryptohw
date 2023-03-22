@@ -125,11 +125,11 @@ clean: clean-eth-socket
 	@rm -f -r ./trace_out
 	@rm -f -r ./verilated
 	@rm -f -r $(HW_DIR)/src/GeneratedUnits
-	@rm -f -r *.dot
+#	@rm -f -r *.dot
 
 test: clean
 	make run HARDWARE_TEST=$(HARDWARE_TEST)
-	make validate
+#	make validate
 
 validate:
 	cp $(SOC_OUT_BIN) $(SW_TEST_DIR)

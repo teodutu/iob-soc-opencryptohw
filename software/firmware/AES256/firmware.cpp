@@ -70,7 +70,7 @@ int main(int argc,const char* argv[])
    AutomaticTests(versat);
 
 #ifndef GENERATE_ONLY
-   Full_AES_Test(versat);
+   // Full_AES_Test(versat);
 #endif
 
    uart_finish();

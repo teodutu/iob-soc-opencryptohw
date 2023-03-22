@@ -136,6 +136,225 @@ TEST(VectorLikeOperation){
    ConfigureMemoryLinear(matInst, VEC_SZ / 4);
    for (int c = 0; c < VEC_SZ / 4; c++){
        VersatUnitWrite(matInst,c,mat[c]);
+   return EXPECT("7","%d",result);
+}
+
+TEST(DummyTest){
+   return EXPECT("1", "%d", 1);
+}
+
+int ComplexAdderInstance(Accelerator* accel,int a,int b){
+   FUInstance* b1 = GetInstanceByName(accel,"Test","b1");
+   FUInstance* b2 = GetInstanceByName(accel,"Test","b2");
+   FUInstance* out = GetInstanceByName(accel,"Test","memOut1");
+
+   VersatUnitWrite(b1,0,a);
+   VersatUnitWrite(b2,0,b);
+
+   ConfigureMemoryReceive(out,1,1);
+
+   AcceleratorRun(accel);
+
+   int result = VersatUnitRead(out,0);
+
+   return result;
+}
+
+int ComplexMultiplierInstance(Accelerator* accel,int a,int b){
+   FUInstance* c1 = GetInstanceByName(accel,"Test","c1");
+   FUInstance* c2 = GetInstanceByName(accel,"Test","c2");
+   FUInstance* out = GetInstanceByName(accel,"Test","memOut2");
+
+   VersatUnitWrite(c1,0,a);
+   VersatUnitWrite(c2,0,b);
+
+   ConfigureMemoryReceive(out,1,1);
+
+   AcceleratorRun(accel);
+
+   int result = VersatUnitRead(out,0);
+
+   return result;
+}
+
+int SemiComplexAdderInstance(Accelerator* accel,int a,int b){
+   FUInstance* d1 = GetInstanceByName(accel,"Test","d1");
+   FUInstance* d2 = GetInstanceByName(accel,"Test","d2");
+   FUInstance* out = GetInstanceByName(accel,"Test","memOut3");
+
+   d1->config[0] = a;
+   VersatUnitWrite(d2,0,b);
+
+   ConfigureMemoryReceive(out,1,1);
+
+   AcceleratorRun(accel);
+
+   int result = VersatUnitRead(out,0);
+
+   return result;
+}
+
+TEST(ComplexMultiplier){
+   FUDeclaration* type = GetTypeByName(versat,MakeSizedString("ComplexMultiplier"));
+   Accelerator* accel = CreateAccelerator(versat);
+   FUInstance* inst = CreateFUInstance(accel,type,MakeSizedString("Test"));
+
+   int result = ComplexMultiplierInstance(accel,4,5);
+
+   return EXPECT("20","%d",result);
+}
+
+TEST(SimpleShareConfig){
+   FUDeclaration* type = GetTypeByName(versat,MakeSizedString("SimpleShareConfig"));
+   Accelerator* accel = CreateAccelerator(versat);
+   FUInstance* inst = CreateFUInstance(accel,type,MakeSizedString("Test"));
+
+   FUInstance* a1 = GetInstanceByName(accel,"Test","a1");
+   FUInstance* a2 = GetInstanceByName(accel,"Test","a2");
+   FUInstance* b1 = GetInstanceByName(accel,"Test","b1");
+   FUInstance* b2 = GetInstanceByName(accel,"Test","b2");
+   FUInstance* out0 = GetInstanceByName(accel,"Test","out0");
+   FUInstance* out1 = GetInstanceByName(accel,"Test","out1");
+   FUInstance* out2 = GetInstanceByName(accel,"Test","out2");
+
+   a1->config[0] = 2;
+   AcceleratorRun(accel);
+   int res0 = out0->state[0];
+
+   a1->config[0] = 0;
+   a2->config[0] = 3;
+   AcceleratorRun(accel);
+   int res1 = out0->state[0];
+
+   b2->config[0] = 4;
+   AcceleratorRun(accel);
+   int res2 = out1->state[0];
+
+   a1->config[0] = 0;
+   a2->config[0] = 0;
+   b1->config[0] = 0;
+   b2->config[0] = 0;
+
+   a2->config[0] = 3;
+   b2->config[0] = 4;
+   AcceleratorRun(accel);
+   int res3 = out2->state[0];
+
+   return EXPECT("4 6 8 7","%d %d %d %d",res0,res1,res2,res3);
+}
+
+TEST(ComplexShareConfig){
+   FUDeclaration* type = GetTypeByName(versat,MakeSizedString("ComplexShareConfig"));
+   Accelerator* accel = CreateAccelerator(versat);
+   FUInstance* inst = CreateFUInstance(accel,type,MakeSizedString("Test"));
+
+   // Test by changing config for shared 1
+   FUInstance* a11 = GetInstanceByName(accel,"Test","shared1","a1");
+   FUInstance* a12 = GetInstanceByName(accel,"Test","shared1","a2");
+   FUInstance* b11 = GetInstanceByName(accel,"Test","shared1","b1");
+   FUInstance* b12 = GetInstanceByName(accel,"Test","shared1","b2");
+
+   // But reading the output of shared 2 (should be the same, since same configuration = same results)
+   FUInstance* out20 = GetInstanceByName(accel,"Test","shared2","out0");
+   FUInstance* out21 = GetInstanceByName(accel,"Test","shared2","out1");
+   FUInstance* out22 = GetInstanceByName(accel,"Test","shared2","out2");
+
+   a11->config[0] = 2;
+   AcceleratorRun(accel);
+   int res0 = out20->state[0];
+
+   a11->config[0] = 0;
+   a12->config[0] = 3;
+   AcceleratorRun(accel);
+   int res1 = out20->state[0];
+
+   b12->config[0] = 4;
+   AcceleratorRun(accel);
+   int res2 = out21->state[0];
+
+   a11->config[0] = 0;
+   a12->config[0] = 0;
+   b11->config[0] = 0;
+   b12->config[0] = 0;
+
+   a12->config[0] = 3;
+   b12->config[0] = 4;
+   AcceleratorRun(accel);
+   int res3 = out22->state[0];
+
+   return EXPECT("4 6 8 7","%d %d %d %d",res0,res1,res2,res3);
+}
+
+TEST(SimpleFlatten){
+   FUDeclaration* type = GetTypeByName(versat,MakeSizedString("SimpleAdder"));
+   Accelerator* accel = CreateAccelerator(versat);
+   FUInstance* inst = CreateFUInstance(accel,type,MakeSizedString("Test"));
+
+   Accelerator* flatten = Flatten(versat,accel,1);
+
+   int result = SimpleAdderInstance(flatten,4,5);
+
+   return EXPECT("9","%d",result);
+}
+
+TEST(FlattenShareConfig){
+   FUDeclaration* type = GetTypeByName(versat,MakeSizedString("ComplexShareConfig"));
+   Accelerator* accel_ = CreateAccelerator(versat);
+   FUInstance* inst = CreateFUInstance(accel_,type,MakeSizedString("Test"));
+
+   Accelerator* flatten = Flatten(versat,accel_,99);
+
+   // Test by changing config for shared 1
+   FUInstance* a11 = GetInstanceByName(flatten,"Test","shared1","a1");
+   FUInstance* a12 = GetInstanceByName(flatten,"Test","shared1","a2");
+   FUInstance* b11 = GetInstanceByName(flatten,"Test","shared1","b1");
+   FUInstance* b12 = GetInstanceByName(flatten,"Test","shared1","b2");
+
+   // But reading the output of shared 2 (should be the same, since same configuration = same results)
+   FUInstance* out20 = GetInstanceByName(flatten,"Test","shared2","out0");
+   FUInstance* out21 = GetInstanceByName(flatten,"Test","shared2","out1");
+   FUInstance* out22 = GetInstanceByName(flatten,"Test","shared2","out2");
+
+   a11->config[0] = 2;
+   AcceleratorRun(flatten);
+   int res0 = out20->state[0];
+
+   a11->config[0] = 0;
+   a12->config[0] = 3;
+   AcceleratorRun(flatten);
+   int res1 = out20->state[0];
+
+   b12->config[0] = 4;
+   AcceleratorRun(flatten);
+   int res2 = out21->state[0];
+
+   a11->config[0] = 0;
+   a12->config[0] = 0;
+   b11->config[0] = 0;
+   b12->config[0] = 0;
+
+   a12->config[0] = 3;
+   b12->config[0] = 4;
+   AcceleratorRun(flatten);
+   int res3 = out22->state[0];
+
+   return EXPECT("4 6 8 7","%d %d %d %d",res0,res1,res2,res3);
+}
+
+TEST(FlattenSHA){
+   FUDeclaration* type = GetTypeByName(versat,MakeSizedString("SHA"));
+   Accelerator* accel = CreateAccelerator(versat);
+   FUInstance* inst = CreateFUInstance(accel,type,MakeSizedString("Test"));
+
+   Accelerator* flatten = Flatten(versat,accel,99);
+
+   SetSHAAccelerator(flatten,nullptr);
+
+   InitVersatSHA(versat,true);
+
+   unsigned char digest[256];
+   for(int i = 0; i < 256; i++){
+      digest[i] = 0;
    }
 
    // printf("config mask\n");
@@ -257,6 +476,8 @@ TEST(AESWithIterative){
 
 #define DISABLED (REVERSE_ENABLED)
 
+#undef HARDWARE_TEST
+
 #ifndef HARDWARE_TEST
    #define HARDWARE_TEST -1
    #define ENABLE_TEST(ENABLED) (!(ENABLED) != !(REVERSE_ENABLED))
@@ -277,10 +498,56 @@ void AutomaticTests(Versat* versat){
    int hardwareTest = HARDWARE_TEST;
    int currentTest = 0;
 
+   TEST_INST(1, DummyTest);
+   // TestInfo test = DummyTest(versat, currentTest);
+   printf("passed = %d; total = %d\n", info.testsPassed, info.numberTests);
+
 #if 1
-   TEST_INST( 1 ,SHA);                  // HARDWARE_TEST = 0
-   TEST_INST( 1, AESWithIterative);     // HARDWARE_TEST = 1
-   TEST_INST( 1, VectorLikeOperation); // HARDWARE_TEST = 2
+#if 1
+   TEST_INST( 1 ,TestMStage);
+   TEST_INST( 1 ,TestFStage);
+   TEST_INST( 1 ,SHA);
+   TEST_INST( 1 ,MultipleSHATests);
+#endif
+#if 1
+   TEST_INST( 1 ,VReadToVWrite);
+   TEST_INST( 0 ,StringHasher);
+   TEST_INST( 1 ,Convolution);
+   TEST_INST( 1 ,MatrixMultiplication);
+   TEST_INST( 1 ,MatrixMultiplicationVRead);
+   TEST_INST( 1 ,VersatAddRoundKey);
+   TEST_INST( 1 ,LookupTable);
+   TEST_INST( 1 ,VersatSubBytes);
+   TEST_INST( 1 ,VersatShiftRows);
+#endif
+#if 1
+   TEST_INST( 1 ,VersatDoRows);
+   TEST_INST( 1 ,VersatMixColumns);
+   TEST_INST( 1 ,FirstLineKey);
+   TEST_INST( 1 ,KeySchedule);
+   TEST_INST( 1 ,AESRound);
+   TEST_INST( 0 ,AES);
+   TEST_INST( 1 ,ReadWriteAES);
+   TEST_INST( 1 ,SimpleAdder);
+   TEST_INST( 1 ,ComplexMultiplier);
+#endif
+#if 1
+   TEST_INST( 1 ,SimpleShareConfig);
+   TEST_INST( 1 ,ComplexShareConfig);
+#endif
+#if 0
+   TEST_INST( 1 ,SimpleFlatten);
+   TEST_INST( 1 ,FlattenShareConfig);
+   TEST_INST( 1 ,ComplexFlatten);
+   TEST_INST( 1 ,FlattenSHA); // Problem on top level static buffers. Maybe do flattening of accelerators with buffers already fixed.
+#endif
+#if 1
+   TEST_INST( 1 ,SimpleMergeNoCommon);
+   TEST_INST( 1 ,SimpleMergeUnitCommonNoEdge);
+   TEST_INST( 1 ,SimpleMergeUnitAndEdgeCommon);
+   TEST_INST( 1 ,SimpleMergeInputOutputCommon);
+   TEST_INST( 0 ,ComplexMerge);
+#endif
 #endif
 
    //Free(versat);
