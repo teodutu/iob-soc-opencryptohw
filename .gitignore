@@ -87,3 +87,6 @@ document/*/*
 !document/*/*.expected
 !document/*/*.pdf
 !document/presentation/presentation.tex
+
+*.bin
+iob_*.c

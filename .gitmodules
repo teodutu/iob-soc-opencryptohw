@@ -28,3 +28,6 @@
 [submodule "submodules/OpenLane"]
 	path = submodules/OpenLane
 	url = https://github.com/The-OpenROAD-Project/OpenLane.git
+[submodule "submodules/XML"]
+	path = submodules/XML
+	url = git@github.com:zeux/pugixml.git

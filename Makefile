@@ -65,6 +65,18 @@ fw-debug:
 gen-spinal-sources:
 	make -C $(HW_DIR) gen-spinal-sources
 
+
+#
+# USE MORHPER TO GENERATE DATAFLOW GRAPH
+#
+morpher-build:
+	make -C $(PC_DIR) build USE_MORPHER=1
+
+morpher-test:
+	make -C $(PC_DIR) test USE_MORPHER=1
+
+morpher-clean: pc-emul-clean
+
 #
 # EMULATE ON PC
 #

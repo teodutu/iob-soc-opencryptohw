@@ -1,6 +1,7 @@
 #include <cstdarg>
 #include <cstdio>
 #include <cstdint>
+#include <iostream>
 
 #include "versat.hpp"
 #include "versatExtra.hpp"
@@ -10,6 +11,11 @@
 #include "basicWrapper.inc"
 #include "versatSHA.hpp"
 #include "versatAES.hpp"
+
+#ifdef USE_MORPHER
+#include "pugixml.hpp"
+#include "pugiconfig.hpp"
+#endif
 
 extern "C"{
 #include "../test_vectors.h"
@@ -502,7 +508,26 @@ void AutomaticTests(Versat* versat){
    // TestInfo test = DummyTest(versat, currentTest);
    printf("passed = %d; total = %d\n", info.testsPassed, info.numberTests);
 
-#if 1
+#ifdef USE_MORPHER
+   printf("\nMorpher enabled\n");
+   const char* source = "array_add_PartPredDFG.xml";
+
+   pugi::xml_document doc;
+   pugi::xml_parse_result result = doc.load_file(source);
+
+   if (result)
+   {
+      std::cout << "XML [" << source << "] parsed without errors\n\n";
+   }
+   else
+   {
+      std::cout << "XML [" << source << "] parsed with errors, attr value: [" << doc.child("node").attribute("attr").value() << "]\n";
+      std::cout << "Error description: " << result.description() << "\n";
+      std::cout << "Error offset: " << result.offset << " (error at [..." << (source + result.offset) << "]\n\n";
+   }
+#endif // USE_MORPHER
+
+#if 0
 #if 1
    TEST_INST( 1 ,TestMStage);
    TEST_INST( 1 ,TestFStage);

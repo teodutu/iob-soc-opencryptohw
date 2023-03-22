@@ -111,6 +111,7 @@ VERSAT_DIR=$(ROOT_DIR)/submodules/VERSAT
 LIB_DIR=$(ROOT_DIR)/submodules/LIB
 MEM_DIR=$(ROOT_DIR)/submodules/MEM
 AXI_DIR=$(ROOT_DIR)/submodules/AXI
+XML_DIR=$(ROOT_DIR)/submodules/XML
 
 #sw paths
 SW_DIR:=$(ROOT_DIR)/software
