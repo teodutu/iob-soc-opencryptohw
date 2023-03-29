@@ -145,9 +145,53 @@ TEST(VectorLikeOperation){
    return EXPECT("7","%d",result);
 }
 
+#ifdef USE_MORPHER
 TEST(DummyTest){
+   printf("\nMorpher enabled\n");
+   const char* source = "array_add_PartPredDFG.xml";
+
+   pugi::xml_document doc;
+   pugi::xml_parse_result result = doc.load_file(source);
+
+   if (!result)
+   {
+      std::cout << "XML [" << source << "] parsed with errors, attr value: [" << doc.child("node").attribute("attr").value() << "]\n";
+      std::cout << "Error description: " << result.description() << "\n";
+      std::cout << "Error offset: " << result.offset << " (error at [..." << (source + result.offset) << "]\n\n";
+
+      return TestInfo(0);
+   }
+
+   pugi::xml_node dfg = doc.child("xml").child("DFG");
+   for (pugi::xml_node node = dfg.child("Node"); node; node = node.next_sibling("Node"))
+   {
+      std::cout << "Node " << node.attribute("idx").as_int() << "\n";
+      std::cout << "\tOP " << node.child_value("OP") << "\n";
+      std::cout << "\tASAP " << node.attribute("ASAP").as_int() << "\n";
+      std::cout << "\tALAP " << node.attribute("ALAP").as_int() << "\n";
+      std::cout << "\tBB " << node.attribute("BB").value() << "\n";
+      std::cout << "\tCONST " << node.attribute("CONST").as_int() << "\n";
+
+      pugi::xml_node inputs = node.child("Inputs");
+      std::cout << "\tInputs:\n";
+      for (pugi::xml_node input = inputs.child("Input"); input; input = input.next_sibling("Input"))
+      {
+         std::cout << "\t\tInput " << input.attribute("idx").as_int() << "\n";
+      }
+
+      pugi::xml_node outputs = node.child("Outputs");
+      std::cout << "\tOutputs:\n";
+      for (pugi::xml_node output = outputs.child("Output"); output; output = output.next_sibling("Output"))
+      {
+         std::cout << "\t\tOutput " << output.attribute("idx").as_int() << "\n";
+         std::cout << "\t\t\tnextiter " << output.attribute("nextiter").as_int() << "\n";
+         std::cout << "\t\t\ttype " << output.attribute("type").value() << "\n";
+      }
+   }
+
    return EXPECT("1", "%d", 1);
 }
+#endif // USE_MORPHER
 
 int ComplexAdderInstance(Accelerator* accel,int a,int b){
    FUInstance* b1 = GetInstanceByName(accel,"Test","b1");
@@ -504,28 +548,9 @@ void AutomaticTests(Versat* versat){
    int hardwareTest = HARDWARE_TEST;
    int currentTest = 0;
 
-   TEST_INST(1, DummyTest);
-   // TestInfo test = DummyTest(versat, currentTest);
-   printf("passed = %d; total = %d\n", info.testsPassed, info.numberTests);
-
 #ifdef USE_MORPHER
-   printf("\nMorpher enabled\n");
-   const char* source = "array_add_PartPredDFG.xml";
-
-   pugi::xml_document doc;
-   pugi::xml_parse_result result = doc.load_file(source);
-
-   if (result)
-   {
-      std::cout << "XML [" << source << "] parsed without errors\n\n";
-   }
-   else
-   {
-      std::cout << "XML [" << source << "] parsed with errors, attr value: [" << doc.child("node").attribute("attr").value() << "]\n";
-      std::cout << "Error description: " << result.description() << "\n";
-      std::cout << "Error offset: " << result.offset << " (error at [..." << (source + result.offset) << "]\n\n";
-   }
-#endif // USE_MORPHER
+   TEST_INST(1, DummyTest);
+#endif
 
 #if 0
 #if 1
