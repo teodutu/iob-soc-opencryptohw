@@ -1,7 +1,10 @@
 #include <cstdarg>
 #include <cstdio>
 #include <cstdint>
+#include <chrono>
 #include <iostream>
+#include <string>
+#include <fstream>
 
 #include "versat.hpp"
 #include "versatExtra.hpp"
@@ -39,17 +42,17 @@ int printf_(const char* format, ...);
 #endif
 
 struct TestInfo{
-   int testsPassed;
-   int numberTests;
+    int testsPassed;
+    int numberTests;
 
-   TestInfo(int passed, int numberTests = 1):testsPassed(passed),numberTests(numberTests){};
+    TestInfo(int passed, int numberTests = 1):testsPassed(passed),numberTests(numberTests){};
 
-   TestInfo& operator+=(TestInfo t){
-      testsPassed += t.testsPassed;
-      numberTests += t.numberTests;
+    TestInfo& operator+=(TestInfo t){
+        testsPassed += t.testsPassed;
+        numberTests += t.numberTests;
 
-      return *this;
-   }
+        return *this;
+    }
 };
 
 #define TEST_FAILED(REASON) do{ printf("\n[%2d]Test failed: %s\n\t%s\n\n",testNumber,__PRETTY_FUNCTION__,REASON); return TestInfo(0);} while(0)
@@ -62,47 +65,48 @@ struct TestInfo{
 static TestInfo Expect_(const char* functionName,int testNumber, const char* expected,const char* format, ...) __attribute__ ((format (printf, 4, 5)));
 
 static TestInfo Expect_(const char* functionName,int testNumber, const char* expected,const char* format, ...){
-   va_list args;
-   va_start(args,format);
+    va_list args;
+    va_start(args,format);
 
-   char buffer[1024];
-   int size = vsprintf(buffer,format,args);
-   Assert(size < 1024);
+    char buffer[1024];
+    int size = vsprintf(buffer,format,args);
+    Assert(size < 1024);
 
-   va_end(args);
+    va_end(args);
 
-   #if FORCE_FAIL
-      expected = "";
-   #endif
+    #if FORCE_FAIL
+        expected = "";
+    #endif
 
-   bool result = (strcmp(expected,buffer) == 0);
-   if(result){
-      TEST_PASSED;
-   } else {
-      printf("\n");
-      printf("[%2d]Test failed: %s\n",testNumber,functionName);
-      printf("    Expected: %s\n",expected);
-      printf("    Result:   %s\n",buffer);
-      printf("              ");
-      for(int i = 0; expected[i] != '\0'; i++){
-         if(buffer[i] == '\0'){
-            printf("^");
-            break;
-         }
-         if(buffer[i] != expected[i]){
-            printf("^");
-         } else {
-            printf(" ");
-         }
-      }
+    bool result = (strcmp(expected,buffer) == 0);
+    if(result){
+        TEST_PASSED;
+    } else {
+        printf("\n");
+        printf("[%2d]Test failed: %s\n",testNumber,functionName);
+        printf("    Expected: %s\n",expected);
+        printf("    Result:   %s\n",buffer);
+        printf("              ");
+        for(int i = 0; expected[i] != '\0'; i++){
+            if(buffer[i] == '\0'){
+                printf("^");
+                break;
+            }
+            if(buffer[i] != expected[i]){
+                printf("^");
+            } else {
+                printf(" ");
+            }
+        }
 
-      printf("\n");
+        printf("\n");
 
-      return TestInfo(0);
-   }
+        return TestInfo(0);
+    }
 }
 
 #define TEST(TEST_NAME) static TestInfo TEST_NAME(Versat* versat,int testNumber)
+#define TEST_FILE(TEST_NAME) static TestInfo TEST_NAME(Versat* versat, int testNumber, const char* dfg_file, const char* data_file)
 
 #include <cstdlib>
 
@@ -145,267 +149,219 @@ TEST(VectorLikeOperation){
    return EXPECT("7","%d",result);
 }
 
-#ifdef USE_MORPHER
-TEST(DummyTest){
-   printf("\nMorpher enabled\n");
-   const char* source = "array_add_PartPredDFG.xml";
-
-   pugi::xml_document doc;
-   pugi::xml_parse_result result = doc.load_file(source);
-
-   if (!result)
-   {
-      std::cout << "XML [" << source << "] parsed with errors, attr value: [" << doc.child("node").attribute("attr").value() << "]\n";
-      std::cout << "Error description: " << result.description() << "\n";
-      std::cout << "Error offset: " << result.offset << " (error at [..." << (source + result.offset) << "]\n\n";
-
-      return TestInfo(0);
-   }
-
-   pugi::xml_node dfg = doc.child("xml").child("DFG");
-   for (pugi::xml_node node = dfg.child("Node"); node; node = node.next_sibling("Node"))
-   {
-      std::cout << "Node " << node.attribute("idx").as_int() << "\n";
-      std::cout << "\tOP " << node.child_value("OP") << "\n";
-      std::cout << "\tASAP " << node.attribute("ASAP").as_int() << "\n";
-      std::cout << "\tALAP " << node.attribute("ALAP").as_int() << "\n";
-      std::cout << "\tBB " << node.attribute("BB").value() << "\n";
-      std::cout << "\tCONST " << node.attribute("CONST").as_int() << "\n";
-
-      pugi::xml_node inputs = node.child("Inputs");
-      std::cout << "\tInputs:\n";
-      for (pugi::xml_node input = inputs.child("Input"); input; input = input.next_sibling("Input"))
-      {
-         std::cout << "\t\tInput " << input.attribute("idx").as_int() << "\n";
-      }
-
-      pugi::xml_node outputs = node.child("Outputs");
-      std::cout << "\tOutputs:\n";
-      for (pugi::xml_node output = outputs.child("Output"); output; output = output.next_sibling("Output"))
-      {
-         std::cout << "\t\tOutput " << output.attribute("idx").as_int() << "\n";
-         std::cout << "\t\t\tnextiter " << output.attribute("nextiter").as_int() << "\n";
-         std::cout << "\t\t\ttype " << output.attribute("type").value() << "\n";
-      }
-   }
-
-   return EXPECT("1", "%d", 1);
-}
-#endif // USE_MORPHER
-
 int ComplexAdderInstance(Accelerator* accel,int a,int b){
-   FUInstance* b1 = GetInstanceByName(accel,"Test","b1");
-   FUInstance* b2 = GetInstanceByName(accel,"Test","b2");
-   FUInstance* out = GetInstanceByName(accel,"Test","memOut1");
+    FUInstance* b1 = GetInstanceByName(accel,"Test","b1");
+    FUInstance* b2 = GetInstanceByName(accel,"Test","b2");
+    FUInstance* out = GetInstanceByName(accel,"Test","memOut1");
 
-   VersatUnitWrite(b1,0,a);
-   VersatUnitWrite(b2,0,b);
+    VersatUnitWrite(b1,0,a);
+    VersatUnitWrite(b2,0,b);
 
-   ConfigureMemoryReceive(out,1,1);
+    ConfigureMemoryReceive(out,1,1);
 
-   AcceleratorRun(accel);
+    AcceleratorRun(accel);
 
-   int result = VersatUnitRead(out,0);
+    int result = VersatUnitRead(out,0);
 
-   return result;
+    return result;
 }
 
 int ComplexMultiplierInstance(Accelerator* accel,int a,int b){
-   FUInstance* c1 = GetInstanceByName(accel,"Test","c1");
-   FUInstance* c2 = GetInstanceByName(accel,"Test","c2");
-   FUInstance* out = GetInstanceByName(accel,"Test","memOut2");
+    FUInstance* c1 = GetInstanceByName(accel,"Test","c1");
+    FUInstance* c2 = GetInstanceByName(accel,"Test","c2");
+    FUInstance* out = GetInstanceByName(accel,"Test","memOut2");
 
-   VersatUnitWrite(c1,0,a);
-   VersatUnitWrite(c2,0,b);
+    VersatUnitWrite(c1,0,a);
+    VersatUnitWrite(c2,0,b);
 
-   ConfigureMemoryReceive(out,1,1);
+    ConfigureMemoryReceive(out,1,1);
 
-   AcceleratorRun(accel);
+    AcceleratorRun(accel);
 
-   int result = VersatUnitRead(out,0);
+    int result = VersatUnitRead(out,0);
 
-   return result;
+    return result;
 }
 
 int SemiComplexAdderInstance(Accelerator* accel,int a,int b){
-   FUInstance* d1 = GetInstanceByName(accel,"Test","d1");
-   FUInstance* d2 = GetInstanceByName(accel,"Test","d2");
-   FUInstance* out = GetInstanceByName(accel,"Test","memOut3");
+    FUInstance* d1 = GetInstanceByName(accel,"Test","d1");
+    FUInstance* d2 = GetInstanceByName(accel,"Test","d2");
+    FUInstance* out = GetInstanceByName(accel,"Test","memOut3");
 
-   d1->config[0] = a;
-   VersatUnitWrite(d2,0,b);
+    d1->config[0] = a;
+    VersatUnitWrite(d2,0,b);
 
-   ConfigureMemoryReceive(out,1,1);
+    ConfigureMemoryReceive(out,1,1);
 
-   AcceleratorRun(accel);
+    AcceleratorRun(accel);
 
-   int result = VersatUnitRead(out,0);
+    int result = VersatUnitRead(out,0);
 
-   return result;
+    return result;
 }
 
 TEST(ComplexMultiplier){
-   FUDeclaration* type = GetTypeByName(versat,MakeSizedString("ComplexMultiplier"));
-   Accelerator* accel = CreateAccelerator(versat);
-   FUInstance* inst = CreateFUInstance(accel,type,MakeSizedString("Test"));
+    FUDeclaration* type = GetTypeByName(versat,MakeSizedString("ComplexMultiplier"));
+    Accelerator* accel = CreateAccelerator(versat);
+    FUInstance* inst = CreateFUInstance(accel,type,MakeSizedString("Test"));
 
-   int result = ComplexMultiplierInstance(accel,4,5);
+    int result = ComplexMultiplierInstance(accel,4,5);
 
-   return EXPECT("20","%d",result);
+    return EXPECT("20","%d",result);
 }
 
 TEST(SimpleShareConfig){
-   FUDeclaration* type = GetTypeByName(versat,MakeSizedString("SimpleShareConfig"));
-   Accelerator* accel = CreateAccelerator(versat);
-   FUInstance* inst = CreateFUInstance(accel,type,MakeSizedString("Test"));
+    FUDeclaration* type = GetTypeByName(versat,MakeSizedString("SimpleShareConfig"));
+    Accelerator* accel = CreateAccelerator(versat);
+    FUInstance* inst = CreateFUInstance(accel,type,MakeSizedString("Test"));
 
-   FUInstance* a1 = GetInstanceByName(accel,"Test","a1");
-   FUInstance* a2 = GetInstanceByName(accel,"Test","a2");
-   FUInstance* b1 = GetInstanceByName(accel,"Test","b1");
-   FUInstance* b2 = GetInstanceByName(accel,"Test","b2");
-   FUInstance* out0 = GetInstanceByName(accel,"Test","out0");
-   FUInstance* out1 = GetInstanceByName(accel,"Test","out1");
-   FUInstance* out2 = GetInstanceByName(accel,"Test","out2");
+    FUInstance* a1 = GetInstanceByName(accel,"Test","a1");
+    FUInstance* a2 = GetInstanceByName(accel,"Test","a2");
+    FUInstance* b1 = GetInstanceByName(accel,"Test","b1");
+    FUInstance* b2 = GetInstanceByName(accel,"Test","b2");
+    FUInstance* out0 = GetInstanceByName(accel,"Test","out0");
+    FUInstance* out1 = GetInstanceByName(accel,"Test","out1");
+    FUInstance* out2 = GetInstanceByName(accel,"Test","out2");
 
-   a1->config[0] = 2;
-   AcceleratorRun(accel);
-   int res0 = out0->state[0];
+    a1->config[0] = 2;
+    AcceleratorRun(accel);
+    int res0 = out0->state[0];
 
-   a1->config[0] = 0;
-   a2->config[0] = 3;
-   AcceleratorRun(accel);
-   int res1 = out0->state[0];
+    a1->config[0] = 0;
+    a2->config[0] = 3;
+    AcceleratorRun(accel);
+    int res1 = out0->state[0];
 
-   b2->config[0] = 4;
-   AcceleratorRun(accel);
-   int res2 = out1->state[0];
+    b2->config[0] = 4;
+    AcceleratorRun(accel);
+    int res2 = out1->state[0];
 
-   a1->config[0] = 0;
-   a2->config[0] = 0;
-   b1->config[0] = 0;
-   b2->config[0] = 0;
+    a1->config[0] = 0;
+    a2->config[0] = 0;
+    b1->config[0] = 0;
+    b2->config[0] = 0;
 
-   a2->config[0] = 3;
-   b2->config[0] = 4;
-   AcceleratorRun(accel);
-   int res3 = out2->state[0];
+    a2->config[0] = 3;
+    b2->config[0] = 4;
+    AcceleratorRun(accel);
+    int res3 = out2->state[0];
 
-   return EXPECT("4 6 8 7","%d %d %d %d",res0,res1,res2,res3);
+    return EXPECT("4 6 8 7","%d %d %d %d",res0,res1,res2,res3);
 }
 
 TEST(ComplexShareConfig){
-   FUDeclaration* type = GetTypeByName(versat,MakeSizedString("ComplexShareConfig"));
-   Accelerator* accel = CreateAccelerator(versat);
-   FUInstance* inst = CreateFUInstance(accel,type,MakeSizedString("Test"));
+    FUDeclaration* type = GetTypeByName(versat,MakeSizedString("ComplexShareConfig"));
+    Accelerator* accel = CreateAccelerator(versat);
+    FUInstance* inst = CreateFUInstance(accel,type,MakeSizedString("Test"));
 
-   // Test by changing config for shared 1
-   FUInstance* a11 = GetInstanceByName(accel,"Test","shared1","a1");
-   FUInstance* a12 = GetInstanceByName(accel,"Test","shared1","a2");
-   FUInstance* b11 = GetInstanceByName(accel,"Test","shared1","b1");
-   FUInstance* b12 = GetInstanceByName(accel,"Test","shared1","b2");
+    // Test by changing config for shared 1
+    FUInstance* a11 = GetInstanceByName(accel,"Test","shared1","a1");
+    FUInstance* a12 = GetInstanceByName(accel,"Test","shared1","a2");
+    FUInstance* b11 = GetInstanceByName(accel,"Test","shared1","b1");
+    FUInstance* b12 = GetInstanceByName(accel,"Test","shared1","b2");
 
-   // But reading the output of shared 2 (should be the same, since same configuration = same results)
-   FUInstance* out20 = GetInstanceByName(accel,"Test","shared2","out0");
-   FUInstance* out21 = GetInstanceByName(accel,"Test","shared2","out1");
-   FUInstance* out22 = GetInstanceByName(accel,"Test","shared2","out2");
+    // But reading the output of shared 2 (should be the same, since same configuration = same results)
+    FUInstance* out20 = GetInstanceByName(accel,"Test","shared2","out0");
+    FUInstance* out21 = GetInstanceByName(accel,"Test","shared2","out1");
+    FUInstance* out22 = GetInstanceByName(accel,"Test","shared2","out2");
 
-   a11->config[0] = 2;
-   AcceleratorRun(accel);
-   int res0 = out20->state[0];
+    a11->config[0] = 2;
+    AcceleratorRun(accel);
+    int res0 = out20->state[0];
 
-   a11->config[0] = 0;
-   a12->config[0] = 3;
-   AcceleratorRun(accel);
-   int res1 = out20->state[0];
+    a11->config[0] = 0;
+    a12->config[0] = 3;
+    AcceleratorRun(accel);
+    int res1 = out20->state[0];
 
-   b12->config[0] = 4;
-   AcceleratorRun(accel);
-   int res2 = out21->state[0];
+    b12->config[0] = 4;
+    AcceleratorRun(accel);
+    int res2 = out21->state[0];
 
-   a11->config[0] = 0;
-   a12->config[0] = 0;
-   b11->config[0] = 0;
-   b12->config[0] = 0;
+    a11->config[0] = 0;
+    a12->config[0] = 0;
+    b11->config[0] = 0;
+    b12->config[0] = 0;
 
-   a12->config[0] = 3;
-   b12->config[0] = 4;
-   AcceleratorRun(accel);
-   int res3 = out22->state[0];
+    a12->config[0] = 3;
+    b12->config[0] = 4;
+    AcceleratorRun(accel);
+    int res3 = out22->state[0];
 
-   return EXPECT("4 6 8 7","%d %d %d %d",res0,res1,res2,res3);
+    return EXPECT("4 6 8 7","%d %d %d %d",res0,res1,res2,res3);
 }
 
 TEST(SimpleFlatten){
-   FUDeclaration* type = GetTypeByName(versat,MakeSizedString("SimpleAdder"));
-   Accelerator* accel = CreateAccelerator(versat);
-   FUInstance* inst = CreateFUInstance(accel,type,MakeSizedString("Test"));
+    FUDeclaration* type = GetTypeByName(versat,MakeSizedString("SimpleAdder"));
+    Accelerator* accel = CreateAccelerator(versat);
+    FUInstance* inst = CreateFUInstance(accel,type,MakeSizedString("Test"));
 
-   Accelerator* flatten = Flatten(versat,accel,1);
+    Accelerator* flatten = Flatten(versat,accel,1);
 
-   int result = SimpleAdderInstance(flatten,4,5);
+    int result = SimpleAdderInstance(flatten,4,5);
 
-   return EXPECT("9","%d",result);
+    return EXPECT("9","%d",result);
 }
 
 TEST(FlattenShareConfig){
-   FUDeclaration* type = GetTypeByName(versat,MakeSizedString("ComplexShareConfig"));
-   Accelerator* accel_ = CreateAccelerator(versat);
-   FUInstance* inst = CreateFUInstance(accel_,type,MakeSizedString("Test"));
+    FUDeclaration* type = GetTypeByName(versat,MakeSizedString("ComplexShareConfig"));
+    Accelerator* accel_ = CreateAccelerator(versat);
+    FUInstance* inst = CreateFUInstance(accel_,type,MakeSizedString("Test"));
 
-   Accelerator* flatten = Flatten(versat,accel_,99);
+    Accelerator* flatten = Flatten(versat,accel_,99);
 
-   // Test by changing config for shared 1
-   FUInstance* a11 = GetInstanceByName(flatten,"Test","shared1","a1");
-   FUInstance* a12 = GetInstanceByName(flatten,"Test","shared1","a2");
-   FUInstance* b11 = GetInstanceByName(flatten,"Test","shared1","b1");
-   FUInstance* b12 = GetInstanceByName(flatten,"Test","shared1","b2");
+    // Test by changing config for shared 1
+    FUInstance* a11 = GetInstanceByName(flatten,"Test","shared1","a1");
+    FUInstance* a12 = GetInstanceByName(flatten,"Test","shared1","a2");
+    FUInstance* b11 = GetInstanceByName(flatten,"Test","shared1","b1");
+    FUInstance* b12 = GetInstanceByName(flatten,"Test","shared1","b2");
 
-   // But reading the output of shared 2 (should be the same, since same configuration = same results)
-   FUInstance* out20 = GetInstanceByName(flatten,"Test","shared2","out0");
-   FUInstance* out21 = GetInstanceByName(flatten,"Test","shared2","out1");
-   FUInstance* out22 = GetInstanceByName(flatten,"Test","shared2","out2");
+    // But reading the output of shared 2 (should be the same, since same configuration = same results)
+    FUInstance* out20 = GetInstanceByName(flatten,"Test","shared2","out0");
+    FUInstance* out21 = GetInstanceByName(flatten,"Test","shared2","out1");
+    FUInstance* out22 = GetInstanceByName(flatten,"Test","shared2","out2");
 
-   a11->config[0] = 2;
-   AcceleratorRun(flatten);
-   int res0 = out20->state[0];
+    a11->config[0] = 2;
+    AcceleratorRun(flatten);
+    int res0 = out20->state[0];
 
-   a11->config[0] = 0;
-   a12->config[0] = 3;
-   AcceleratorRun(flatten);
-   int res1 = out20->state[0];
+    a11->config[0] = 0;
+    a12->config[0] = 3;
+    AcceleratorRun(flatten);
+    int res1 = out20->state[0];
 
-   b12->config[0] = 4;
-   AcceleratorRun(flatten);
-   int res2 = out21->state[0];
+    b12->config[0] = 4;
+    AcceleratorRun(flatten);
+    int res2 = out21->state[0];
 
-   a11->config[0] = 0;
-   a12->config[0] = 0;
-   b11->config[0] = 0;
-   b12->config[0] = 0;
+    a11->config[0] = 0;
+    a12->config[0] = 0;
+    b11->config[0] = 0;
+    b12->config[0] = 0;
 
-   a12->config[0] = 3;
-   b12->config[0] = 4;
-   AcceleratorRun(flatten);
-   int res3 = out22->state[0];
+    a12->config[0] = 3;
+    b12->config[0] = 4;
+    AcceleratorRun(flatten);
+    int res3 = out22->state[0];
 
-   return EXPECT("4 6 8 7","%d %d %d %d",res0,res1,res2,res3);
+    return EXPECT("4 6 8 7","%d %d %d %d",res0,res1,res2,res3);
 }
 
 TEST(FlattenSHA){
-   FUDeclaration* type = GetTypeByName(versat,MakeSizedString("SHA"));
-   Accelerator* accel = CreateAccelerator(versat);
-   FUInstance* inst = CreateFUInstance(accel,type,MakeSizedString("Test"));
+    FUDeclaration* type = GetTypeByName(versat,MakeSizedString("SHA"));
+    Accelerator* accel = CreateAccelerator(versat);
+    FUInstance* inst = CreateFUInstance(accel,type,MakeSizedString("Test"));
 
-   Accelerator* flatten = Flatten(versat,accel,99);
+    Accelerator* flatten = Flatten(versat,accel,99);
 
-   SetSHAAccelerator(flatten,nullptr);
+    SetSHAAccelerator(flatten,nullptr);
 
-   InitVersatSHA(versat,true);
+    InitVersatSHA(versat,true);
 
-   unsigned char digest[256];
-   for(int i = 0; i < 256; i++){
-      digest[i] = 0;
-   }
+    unsigned char digest[256];
+    for(int i = 0; i < 256; i++){
+        digest[i] = 0;
+    }
 
    // printf("config mask\n");
    FUInstance* maskInst = GetInstanceByName(accel,"Test","mask");
@@ -457,20 +413,20 @@ TEST(SHA){
    Accelerator* accel = CreateAccelerator(versat);
    FUInstance* inst = CreateFUInstance(accel,type,STRING("Test"));
 
-   SetSHAAccelerator(accel,inst);
+    SetSHAAccelerator(accel,inst);
 
-   InitVersatSHA(versat,true);
+    InitVersatSHA(versat,true);
 
-   unsigned char digest[256];
-   for(int i = 0; i < 256; i++){
-      digest[i] = 0;
-   }
+    unsigned char digest[256];
+    for(int i = 0; i < 256; i++){
+        digest[i] = 0;
+    }
 
-   VersatSHA(digest,msg_64,64);
+    VersatSHA(digest,msg_64,64);
 
-   //printf("%s\n",buffer);
+    //printf("%s\n",buffer);
 
-   return EXPECT("42e61e174fbb3897d6dd6cef3dd2802fe67b331953b06114a65c772859dfc1aa","%s",GetHexadecimal(digest, HASH_SIZE));
+    return EXPECT("42e61e174fbb3897d6dd6cef3dd2802fe67b331953b06114a65c772859dfc1aa","%s",GetHexadecimal(digest, HASH_SIZE));
 }
 
 TEST(AESWithIterative){
@@ -521,6 +477,252 @@ TEST(AESWithIterative){
    return EXPECT("0xdf 0x86 0x34 0xca 0x02 0xb1 0x3a 0x12 0x5b 0x78 0x6e 0x1d 0xce 0x90 0x65 0x8b ","%s",buffer);
 }
 
+#ifdef USE_MORPHER
+struct ArrayElem {
+    int idx, initial, final;
+    std::string name;
+};
+
+std::istream& operator>>(std::istream& is, ArrayElem& e) {
+    const size_t size = sizeof(e.initial);
+
+    int init[4], fin[4];
+    char delim;
+
+    for (size_t i = 0; i < size; i++) {
+        getline(is, e.name, ' ');
+        if (e.name[0] == '\n')
+            e.name.erase(0, 1);
+
+        if (e.name == "loopstart" || e.name == "loopend") {
+            int tmp;
+            is >> tmp >> tmp >> tmp;
+            return is;
+        }
+        is >> e.idx >> init[i] >> fin[i];
+    }
+
+    e.initial = init[0] | (init[1] << 8) | (init[2] << 16) | (init[3] << 24);
+    e.final = fin[0] | (fin[1] << 8) | (fin[2] << 16) | (fin[3] << 24);
+
+    return is;
+}
+
+std::unordered_map<std::string, std::vector<ArrayElem>> ReadArrays(const std::string& filename) {
+    std::unordered_map<std::string, std::vector<ArrayElem>> arrays;
+    std::string line;
+    auto ifs = std::ifstream(filename);
+
+    if (!ifs.is_open()) {
+        std::cerr << "Could not open file " << filename << '\n';
+        return arrays;
+    }
+
+    getline(ifs, line); // skip first line (header)
+
+    while (!ifs.eof()) {
+        ArrayElem elem;
+        ifs >> elem;
+        // std::cout << elem.name << ": " << elem.idx << ' ' << elem.initial << ' ' << elem.final << '\n';
+        if (elem.name != "loopstart" && elem.name != "loopend" && elem.name != "")
+            arrays[elem.name].emplace_back(elem);
+    }
+
+    return arrays;
+}
+
+pugi::xml_node GeXMLDFG(const char* xml_file)
+{
+    pugi::xml_document doc;
+    pugi::xml_parse_result xml_result = doc.load_file(xml_file);
+
+    if (!xml_result) {
+        std::cout << "XML [" << xml_file << "] parsed with errors, attr value: [" << doc.child("node").attribute("attr").value() << "]\n";
+        std::cout << "Error description: " << xml_result.description() << "\n";
+        std::cout << "Error offset: " << xml_result.offset << " (error at offset [" << xml_result.offset << "]\n\n";
+
+        return pugi::xml_node();
+    }
+
+    return doc.child("xml").child("DFG");
+}
+
+enum class ArrayOp {
+    ADD,
+    MUL,
+};
+
+TEST_FILE(SimpleArrayOperation){
+    Accelerator* accel = CreateAccelerator(versat);
+    FUInstance *inst;
+
+    ArrayOp op = ArrayOp::ADD;
+    std::chrono::time_point<std::chrono::high_resolution_clock> start, end;
+    std::chrono::milliseconds elapsed;
+    std::vector<int> results;
+    int res;
+
+    pugi::xml_node xml_dfg = GeXMLDFG(dfg_file);
+    if (xml_dfg.empty()) {
+        return TestInfo(0);
+    }
+
+    for (pugi::xml_node node = xml_dfg.child("Node"); node; node = node.next_sibling("Node")) {
+        int idx = node.attribute("idx").as_int();
+        if (!strcmp(node.child_value("OP"), "MUL")) {
+            op = ArrayOp::MUL;
+            break;
+        }
+    }
+
+    auto arrays = ReadArrays(data_file);
+    size_t size = arrays["A"].size();
+
+    start = std::chrono::high_resolution_clock::now();
+    if (op == ArrayOp::ADD) {
+        FUDeclaration* type = GetTypeByName(versat, MakeSizedString("ComplexAdder"));
+        accel = CreateAccelerator(versat);
+        inst = CreateFUInstance(accel, type, MakeSizedString("Test"));
+    } else if (op == ArrayOp::MUL) {
+        FUDeclaration* type = GetTypeByName(versat, MakeSizedString("ComplexMultiplier"));
+        assert(type != nullptr);
+        accel = CreateAccelerator(versat);
+        inst = CreateFUInstance(accel, type, MakeSizedString("Test"));
+    } else {
+        std::cerr << "Unknown operation\n";
+        return TestInfo(0);
+    }
+
+    for(size_t i = 0; i < size; i++) {
+        if (op == ArrayOp::ADD) {
+            res = ComplexAdderInstance(accel, arrays["A"][i].initial, arrays["B"][i].initial);
+        } else if (op == ArrayOp::MUL) {
+            res = ComplexMultiplierInstance(accel, arrays["A"][i].initial, arrays["B"][i].initial);
+        } else {
+            std::cerr << "Unknown operation\n";
+            return TestInfo(0);
+        }
+
+        results.push_back(res);
+    }
+
+    end = std::chrono::high_resolution_clock::now();
+    elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(end - start);
+
+    std::cout << "Elapsed time: " << elapsed.count() << "ms\n";
+
+    for(size_t i = 0; i < size; i++) {
+        if (results[i] != arrays["C"][i].final) {
+            std::cout << "Error at index " << i << ": " << results[i] << " != " << arrays["C"][i].final << '\n';
+            return TestInfo(0);
+        }
+    }
+
+    OutputVersatSource(versat,accel,"versat_instance.v","versat_defs.vh","versat_data.inc");
+
+    return TestInfo(1); 
+}
+
+TEST(DotProduct){
+    Accelerator* accel = CreateAccelerator(versat);
+    FUDeclaration* type = GetTypeByName(versat,MakeSizedString("MatrixMultiplication"));
+    CreateFUInstance(accel,type,MakeSizedString("test"));
+
+    FUInstance* memA = GetInstanceByName(accel,"test","matA");
+    FUInstance* memB = GetInstanceByName(accel,"test","matB");
+    FUInstance* muladd = GetInstanceByName(accel,"test","ma");
+
+    FUInstance* res = GetInstanceByName(accel,"test","res");
+
+    auto arrays = ReadArrays("array_prod_trace.csv");
+    int dimensions = arrays["A"].size();
+    int size = dimensions;
+
+    ConfigureLeftSideMatrix(memA, dimensions);
+    ConfigureLeftSideMatrix(memB, dimensions);
+
+    for(int i = 0; i < size; i++){
+        VersatUnitWrite(memA, i, arrays["A"][i].initial);
+        VersatUnitWrite(memB, i, arrays["B"][i].initial);
+    }
+
+    volatile MuladdConfig* conf = (volatile MuladdConfig*) muladd->config;
+
+    conf->opcode = 0;
+    conf->iterations = size;
+    conf->period = size;
+    conf->shift = 0;
+
+    ConfigureMemoryReceive(res, 1, 1);
+
+    AcceleratorRun(accel);
+
+    OutputVersatSource(versat,accel,"versat_instance.v","versat_defs.vh","versat_data.inc");
+
+    char result[1024];
+    char* ptrRes = result;
+    for(int i = 0; i < dimensions; i++){
+        ptrRes += sprintf(ptrRes, "%d ",VersatUnitRead(res, i));
+    }
+
+    return EXPECT("30 ", "%s", result);
+}
+
+TEST(DisplayMorpherDFG){
+    const char* source = "ArrayAdd.xml";
+    pugi::xml_node xml_dfg = GeXMLDFG(source);
+
+    std::unordered_map<int, pugi::xml_node> nodes;
+    std::unordered_map<int, std::vector<int>> dfg;
+
+    for (pugi::xml_node node = xml_dfg.child("Node"); node; node = node.next_sibling("Node"))
+    {
+        int idx = node.attribute("idx").as_int();
+        std::cout << "Node " << idx << "\n";
+        std::cout << "\tOP " << node.child_value("OP") << "\n";
+        std::cout << "\tASAP " << node.attribute("ASAP").as_int() << "\n";
+        std::cout << "\tALAP " << node.attribute("ALAP").as_int() << "\n";
+        std::cout << "\tBB " << node.attribute("BB").value() << "\n";
+        std::cout << "\tCONST " << node.attribute("CONST").as_int() << "\n";
+
+        pugi::xml_node inputs = node.child("Inputs");
+        std::cout << "\tInputs:\n";
+        for (pugi::xml_node input = inputs.child("Input"); input; input = input.next_sibling("Input"))
+        {
+            std::cout << "\t\tInput " << input.attribute("idx").as_int() << "\n";
+        }
+
+        pugi::xml_node outputs = node.child("Outputs");
+        std::cout << "\tOutputs:\n";
+        for (pugi::xml_node output = outputs.child("Output"); output; output = output.next_sibling("Output"))
+        {
+            int output_idx = output.attribute("idx").as_int();
+            dfg[idx].push_back(output_idx);
+
+            std::cout << "\t\tOutput " << output_idx << "\n";
+            std::cout << "\t\t\tnextiter " << output.attribute("nextiter").as_int() << "\n";
+            std::cout << "\t\t\ttype " << output.attribute("type").value() << "\n";
+        }
+
+        nodes[node.attribute("idx").as_int()] = node;
+    }
+
+    for (auto& neighbours : dfg)
+    {
+        std::cout << nodes[neighbours.first].child_value("OP") << "(" << neighbours.first << ") ->: ";
+        for (auto& node : neighbours.second)
+        {
+            std::cout << nodes[node].child_value("OP") << "(" << node << ") ";
+        }
+        std::cout << "\n";
+    }
+
+    Accelerator* accel = CreateAccelerator(versat);
+
+    return EXPECT("1", "%d", 1);
+}
+#endif // USE_MORPHER
+
 // When 1, need to pass 0 to enable test (changes enabler from 1 to 0)
 #define REVERSE_ENABLED 0
 
@@ -529,78 +731,110 @@ TEST(AESWithIterative){
 #undef HARDWARE_TEST
 
 #ifndef HARDWARE_TEST
-   #define HARDWARE_TEST -1
-   #define ENABLE_TEST(ENABLED) (!(ENABLED) != !(REVERSE_ENABLED))
+    #define HARDWARE_TEST -1
+    #define ENABLE_TEST(ENABLED) (!(ENABLED) != !(REVERSE_ENABLED))
 #else
-   #define ENABLE_TEST(ENABLED) (currentTest == hardwareTest)
+    #define ENABLE_TEST(ENABLED) (currentTest == hardwareTest)
 #endif
 
-#define TEST_INST(ENABLED,TEST_NAME) do { if(ENABLE_TEST( ENABLED )){ \
-      TestInfo test = TEST_NAME(versat,currentTest); \
-      if(test.testsPassed == test.numberTests) printf("%32s [%02d] - OK\n",#TEST_NAME,currentTest); \
-      info += test; \
-     \
-   } \
-   currentTest += 1; } while(0)
+#define TEST_INST(ENABLED, TEST_NAME)                                   \
+    do {                                                                \
+        if (ENABLE_TEST(ENABLED)) {                                     \
+            TestInfo test = TEST_NAME(versat, currentTest);             \
+            if (test.testsPassed == test.numberTests)                   \
+                printf("%32s [%02d] - OK\n", #TEST_NAME, currentTest);  \
+            info += test;                                               \
+        }                                                               \
+        currentTest += 1;                                               \
+    } while (0)
+
+#define TEST_INST_FILE(ENABLED, TEST_NAME)                                          \
+    do {                                                                            \
+        if (ENABLE_TEST(ENABLED)) {                                                 \
+            TestInfo test = TEST_NAME(versat, currentTest, #TEST_NAME ".xml",       \
+                #TEST_NAME ".csv");                                                 \
+            if (test.testsPassed == test.numberTests)                               \
+                printf("%32s [%02d] - OK\n", #TEST_NAME, currentTest);              \
+            info += test;                                                           \
+        }                                                                           \
+        currentTest += 1;                                                           \
+    } while (0)
+
+#define TEST_INST_OPERATION(ENABLED, TEST_NAME, OPERATION)                          \
+    do {                                                                            \
+        if (ENABLE_TEST(ENABLED)) {                                                 \
+            TestInfo test = TEST_NAME(versat, currentTest, OPERATION".xml",         \
+                OPERATION".csv");                                                   \
+            if (test.testsPassed == test.numberTests)                               \
+                printf("%32s [%02d] - OK\n", #OPERATION, currentTest);              \
+            info += test;                                                           \
+        }                                                                           \
+        currentTest += 1;                                                           \
+    } while (0)
+
 
 void AutomaticTests(Versat* versat){
-   TestInfo info = TestInfo(0,0);
-   int hardwareTest = HARDWARE_TEST;
-   int currentTest = 0;
+    TestInfo info = TestInfo(0,0);
+    int hardwareTest = HARDWARE_TEST;
+    int currentTest = 0;
 
 #ifdef USE_MORPHER
-   TEST_INST(1, DummyTest);
-#endif
+    TEST_INST(1, DisplayMorpherDFG);
+    TEST_INST_OPERATION(1, SimpleArrayOperation, "ArrayAdd");
+    TEST_INST_OPERATION(1, SimpleArrayOperation, "ElemProd");
+
+    // TEST_INST(1, DotProduct);
+#endif  // USE_MORPHER
 
 #if 0
 #if 1
-   TEST_INST( 1 ,TestMStage);
-   TEST_INST( 1 ,TestFStage);
-   TEST_INST( 1 ,SHA);
-   TEST_INST( 1 ,MultipleSHATests);
+    TEST_INST( 1 ,TestMStage);
+    TEST_INST( 1 ,TestFStage);
+    TEST_INST( 1 ,SHA);
+    TEST_INST( 1 ,MultipleSHATests);
 #endif
 #if 1
-   TEST_INST( 1 ,VReadToVWrite);
-   TEST_INST( 0 ,StringHasher);
-   TEST_INST( 1 ,Convolution);
-   TEST_INST( 1 ,MatrixMultiplication);
-   TEST_INST( 1 ,MatrixMultiplicationVRead);
-   TEST_INST( 1 ,VersatAddRoundKey);
-   TEST_INST( 1 ,LookupTable);
-   TEST_INST( 1 ,VersatSubBytes);
-   TEST_INST( 1 ,VersatShiftRows);
+    TEST_INST( 1 ,VReadToVWrite);
+    TEST_INST( 0 ,StringHasher);
+    TEST_INST( 1 ,Convolution);
+    TEST_INST( 1 ,MatrixMultiplication);
+    TEST_INST( 1 ,MatrixMultiplicationVRead);
+    TEST_INST( 1 ,VersatAddRoundKey);
+    TEST_INST( 1 ,LookupTable);
+    TEST_INST( 1 ,VersatSubBytes);
+    TEST_INST( 1 ,VersatShiftRows);
 #endif
 #if 1
-   TEST_INST( 1 ,VersatDoRows);
-   TEST_INST( 1 ,VersatMixColumns);
-   TEST_INST( 1 ,FirstLineKey);
-   TEST_INST( 1 ,KeySchedule);
-   TEST_INST( 1 ,AESRound);
-   TEST_INST( 0 ,AES);
-   TEST_INST( 1 ,ReadWriteAES);
-   TEST_INST( 1 ,SimpleAdder);
-   TEST_INST( 1 ,ComplexMultiplier);
+    TEST_INST( 1 ,VersatDoRows);
+    TEST_INST( 1 ,VersatMixColumns);
+    TEST_INST( 1 ,FirstLineKey);
+    TEST_INST( 1 ,KeySchedule);
+    TEST_INST( 1 ,AESRound);
+    TEST_INST( 0 ,AES);
+    TEST_INST( 1 ,ReadWriteAES);
+    TEST_INST( 1 ,SimpleAdder);
+    TEST_INST( 1 ,ComplexMultiplier);
 #endif
 #if 1
-   TEST_INST( 1 ,SimpleShareConfig);
-   TEST_INST( 1 ,ComplexShareConfig);
+    TEST_INST( 1 ,SimpleShareConfig);
+    TEST_INST( 1 ,ComplexShareConfig);
 #endif
 #if 0
-   TEST_INST( 1 ,SimpleFlatten);
-   TEST_INST( 1 ,FlattenShareConfig);
-   TEST_INST( 1 ,ComplexFlatten);
-   TEST_INST( 1 ,FlattenSHA); // Problem on top level static buffers. Maybe do flattening of accelerators with buffers already fixed.
+    TEST_INST( 1 ,SimpleFlatten);
+    TEST_INST( 1 ,FlattenShareConfig);
+    TEST_INST( 1 ,ComplexFlatten);
+    TEST_INST( 1 ,FlattenSHA); // Problem on top level static buffers. Maybe do flattening of accelerators with buffers already fixed.
 #endif
 #if 1
-   TEST_INST( 1 ,SimpleMergeNoCommon);
-   TEST_INST( 1 ,SimpleMergeUnitCommonNoEdge);
-   TEST_INST( 1 ,SimpleMergeUnitAndEdgeCommon);
-   TEST_INST( 1 ,SimpleMergeInputOutputCommon);
-   TEST_INST( 0 ,ComplexMerge);
+    TEST_INST( 1 ,SimpleMergeNoCommon);
+    TEST_INST( 1 ,SimpleMergeUnitCommonNoEdge);
+    TEST_INST( 1 ,SimpleMergeUnitAndEdgeCommon);
+    TEST_INST( 1 ,SimpleMergeInputOutputCommon);
+    TEST_INST( 0 ,ComplexMerge);
 #endif
 #endif
 
-   //Free(versat);
+    //Free(versat);
 
-   printf("\nAutomatic tests done (passed/total): %d / %d\n",info.testsPassed,info.numberTests);
+    printf("\nAutomatic tests done (passed/total): %d / %d\n",info.testsPassed,info.numberTests);
 }
