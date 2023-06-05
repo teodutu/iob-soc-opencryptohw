@@ -114,6 +114,7 @@ run: build $(SOC_IN_BIN)
 	./$(FW_EMUL) $(TEST_LOG)
 
 clean: clean-eth-socket
+	-@killall python3
 	@rm -rf $(FW_EMUL) periphs.h *swreg*.h *swreg*.c test.log soc2cnsl cnsl2soc \
 		$(ETH_LOG) $(SOC_LOG) eth_frame_struct.h $(EMUL_PROFILE_LOG) *.bin
 	@rm -f versat_data.inc versat_defs.vh versat_instance.v \

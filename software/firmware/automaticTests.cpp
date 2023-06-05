@@ -552,6 +552,101 @@ enum class ArrayOp {
     MUL,
 };
 
+// static void ConvertXMLToGraph(std::unordered_map<int, pugi::xml_node>& nodes,
+//     std::unordered_map<int, std::vector<int>>& dfg) {
+//     for (pugi::xml_node node = dfg.child("Node"); node; node = node.next_sibling("Node")) {
+//         int idx = node.attribute("idx").as_int();
+//         pugi::xml_node outputs = node.child("Outputs");
+
+//         for (pugi::xml_node output = outputs.child("Output"); output; output = output.next_sibling("Output")) {
+//             int output_idx = output.attribute("idx").as_int();
+//             dfg[idx].push_back(output_idx);
+//         }
+
+//         nodes[node.attribute("idx").as_int()] = node;
+//     }
+// }
+
+static pugi::xml_node FindChildByOp(const pugi::xml_node& parent,
+    const char* child_name, const char* op) {
+    for (pugi::xml_node child = parent.child(child_name); child;
+        child = child.next_sibling(child_name)) {
+        if (!strcmp(child.child_value("OP"), op)) {
+            return child;
+        }
+    }
+
+    return pugi::xml_node();
+}
+
+static pugi::xml_node FindChildFromOutputs(const pugi::xml_node& parent,
+    const char* child_name, const char* op) {
+    pugi::xml_node outputs = parent.child("Outputs");
+    if (outputs.empty())
+        return pugi::xml_node();
+
+    for (pugi::xml_node output = outputs.child("Output"); output;
+        output = output.next_sibling("Output")) {
+        pugi::xml_node out_node = parent.find_child_by_attribute("Node", "idx",
+            output.child_value("idx"));
+
+        if (!strcmp(out_node.child_value("OP"), op)) {
+            return out_node;
+        }
+    }
+
+    return pugi::xml_node();
+}
+
+static size_t GetLoopLength(const pugi::xml_node& dfg, const pugi::xml_node& select_node) {
+    pugi::xml_node outputs = select_node.child("Outputs");
+    if (outputs.empty())
+        return 0;
+
+    for (pugi::xml_node output = outputs.child("Output"); output;
+        output = output.next_sibling("Output")) {
+        pugi::xml_node out_node = dfg.find_child_by_attribute("Node", "idx",
+            output.attribute("idx").value());
+
+        if (!strcmp(out_node.child_value("OP"), "ADD")) {
+            outputs = out_node.child("Outputs");
+            if (outputs.empty())
+                return 0;
+
+            for (pugi::xml_node output = out_node.child("Output"); output;
+                output = output.next_sibling("Output")) {
+                pugi::xml_node out_node = dfg.find_child_by_attribute("Node", "idx",
+                    output.attribute("idx").value());
+
+                if (!strcmp(out_node.child_value("OP"), "CMP")) {
+                    return out_node.attribute("CONST").as_int();
+                }
+            }
+        }
+    }
+
+    return 0;
+}
+
+static size_t GetLoopIncrement(const pugi::xml_node& dfg, const pugi::xml_node& select_node) {
+    pugi::xml_node outputs = select_node.child("Outputs");
+    if (outputs.empty())
+        return 0;
+    int i;
+
+    for (pugi::xml_node output = outputs.child("Output"); output;
+        output = output.next_sibling("Output")) {
+        pugi::xml_node out_node = dfg.find_child_by_attribute("Node", "idx",
+            output.attribute("idx").value());
+
+        if (!strcmp(out_node.child_value("OP"), "ADD")) {
+            return out_node.attribute("CONST").as_int();
+        }
+    }
+
+    return 0;
+}
+
 TEST_FILE(SimpleArrayOperation){
     Accelerator* accel = CreateAccelerator(versat);
     FUInstance *inst;
@@ -561,11 +656,15 @@ TEST_FILE(SimpleArrayOperation){
     std::chrono::milliseconds elapsed;
     std::vector<int> results;
     int res;
+    size_t size = 0, incr = 0;
+    // std::unordered_map<int, pugi::xml_node> nodes;
+    // std::unordered_map<int, std::vector<int>> dfg;
 
     pugi::xml_node xml_dfg = GeXMLDFG(dfg_file);
     if (xml_dfg.empty()) {
         return TestInfo(0);
     }
+    // ConvertXMLToGraph(nodes, dfg);
 
     for (pugi::xml_node node = xml_dfg.child("Node"); node; node = node.next_sibling("Node")) {
         int idx = node.attribute("idx").as_int();
@@ -575,8 +674,18 @@ TEST_FILE(SimpleArrayOperation){
         }
     }
 
+    pugi::xml_node select_node = FindChildByOp(xml_dfg, "Node", "SELECT");
+    assert(!select_node.empty());
+
+    incr = GetLoopIncrement(xml_dfg, select_node);
+    assert(incr);
+
     auto arrays = ReadArrays(data_file);
-    size_t size = arrays["A"].size();
+    size = arrays["A"].size();
+    // size = GetLoopLength(xml_dfg, select_node);
+    assert(size == arrays["A"].size());
+    assert(size == arrays["B"].size());
+    assert(size == arrays["C"].size());
 
     start = std::chrono::high_resolution_clock::now();
     if (op == ArrayOp::ADD) {
@@ -593,7 +702,7 @@ TEST_FILE(SimpleArrayOperation){
         return TestInfo(0);
     }
 
-    for(size_t i = 0; i < size; i++) {
+    for(size_t i = 0; i < size; i += incr) {
         if (op == ArrayOp::ADD) {
             res = ComplexAdderInstance(accel, arrays["A"][i].initial, arrays["B"][i].initial);
         } else if (op == ArrayOp::MUL) {
