@@ -106,7 +106,8 @@ static TestInfo Expect_(const char* functionName,int testNumber, const char* exp
 }
 
 #define TEST(TEST_NAME) static TestInfo TEST_NAME(Versat* versat,int testNumber)
-#define TEST_FILE(TEST_NAME) static TestInfo TEST_NAME(Versat* versat, int testNumber, const char* dfg_file, const char* data_file)
+#define TEST_FILE(TEST_NAME) static TestInfo TEST_NAME(Versat* versat, int testNumber, \
+    const char* dfg_file, const char* data_file)
 
 #include <cstdlib>
 
@@ -508,22 +509,22 @@ std::istream& operator>>(std::istream& is, ArrayElem& e) {
     return is;
 }
 
-std::unordered_map<std::string, std::vector<ArrayElem>> ReadArrays(const std::string& filename) {
+std::unordered_map<std::string, std::vector<ArrayElem>> ReadArrays(
+    const char* arrays_filename) {
     std::unordered_map<std::string, std::vector<ArrayElem>> arrays;
     std::string line;
-    auto ifs = std::ifstream(filename);
+    size_t offset;
+    auto ifs = std::ifstream(arrays_filename);
 
     if (!ifs.is_open()) {
-        std::cerr << "Could not open file " << filename << '\n';
+        std::cerr << "Could not open file " << arrays_filename << '\n';
         return arrays;
     }
 
     getline(ifs, line); // skip first line (header)
-
     while (!ifs.eof()) {
         ArrayElem elem;
         ifs >> elem;
-        // std::cout << elem.name << ": " << elem.idx << ' ' << elem.initial << ' ' << elem.final << '\n';
         if (elem.name != "loopstart" && elem.name != "loopend" && elem.name != "")
             arrays[elem.name].emplace_back(elem);
     }
@@ -547,171 +548,316 @@ pugi::xml_node GeXMLDFG(const char* xml_file)
     return doc.child("xml").child("DFG");
 }
 
-enum class ArrayOp {
+enum class Instruction {
+    ERR = 0,
     ADD,
+    SUB,
     MUL,
+    DIV,
+    SHL,
+    SHR,
+    LOAD,
+    STORE,
+    LOADB,
+    STOREB,
+    LS,
+    CMERGE,
+    MOVC,
+    CMP,
+    SELECT,
 };
 
-// static void ConvertXMLToGraph(std::unordered_map<int, pugi::xml_node>& nodes,
-//     std::unordered_map<int, std::vector<int>>& dfg) {
-//     for (pugi::xml_node node = dfg.child("Node"); node; node = node.next_sibling("Node")) {
-//         int idx = node.attribute("idx").as_int();
-//         pugi::xml_node outputs = node.child("Outputs");
+static Instruction CreateInstruction(const char* instruction_str) {
+    if (strcmp(instruction_str, "ADD") == 0)
+        return Instruction::ADD;
+    else if (strcmp(instruction_str, "MUL") == 0)
+        return Instruction::MUL;
+    else if (strcmp(instruction_str, "DIV") == 0)
+        return Instruction::DIV;
+    else if (strcmp(instruction_str, "SHL") == 0)
+        return Instruction::SHL;
+    else if (strcmp(instruction_str, "SHR") == 0)
+        return Instruction::SHR;
+    else if (strcmp(instruction_str, "LOAD") == 0)
+        return Instruction::LOAD;
+    else if (strcmp(instruction_str, "STORE") == 0)
+        return Instruction::STORE;
+    else if (strcmp(instruction_str, "LOADB") == 0)
+        return Instruction::LOADB;
+    else if (strcmp(instruction_str, "STOREB") == 0)
+        return Instruction::STOREB;
+    else if (strcmp(instruction_str, "LS") == 0)
+        return Instruction::LS;
+    else if (strcmp(instruction_str, "CMERGE") == 0)
+        return Instruction::CMERGE;
+    else if (strcmp(instruction_str, "MOVC") == 0)
+        return Instruction::MOVC;
+    else if (strcmp(instruction_str, "CMP") == 0)
+        return Instruction::CMP;
+    else if (strcmp(instruction_str, "SELECT") == 0)
+        return Instruction::SELECT;
+    else {
+        std::cerr << "Invalid instruction: " << instruction_str << '\n';
+        assert(false);
+    }
+}
 
-//         for (pugi::xml_node output = outputs.child("Output"); output; output = output.next_sibling("Output")) {
-//             int output_idx = output.attribute("idx").as_int();
-//             dfg[idx].push_back(output_idx);
-//         }
+struct InstructionNode {
+    Instruction instr;
+    int const_val;
+    size_t idx;
+    std::string var;
+    std::vector<size_t> inputs;
+    std::vector<size_t> outputs;
+};
 
-//         nodes[node.attribute("idx").as_int()] = node;
-//     }
-// }
+std::unordered_map<size_t, InstructionNode> ReadDFG(const char* xml_file)
+{
+    std::unordered_map<size_t, InstructionNode> dfg;
+    pugi::xml_node pugi_dfg = GeXMLDFG(xml_file);
+    std::string var_name;
+    size_t const_val;
+    
+    if (!pugi_dfg) {
+        std::cerr << "Could not parse XML file " << xml_file << '\n';
+        return dfg;
+    }
 
-static pugi::xml_node FindChildByOp(const pugi::xml_node& parent,
-    const char* child_name, const char* op) {
-    for (pugi::xml_node child = parent.child(child_name); child;
-        child = child.next_sibling(child_name)) {
-        if (!strcmp(child.child_value("OP"), op)) {
-            return child;
+    for (pugi::xml_node node = pugi_dfg.child("Node"); node; node = node.next_sibling("Node")) {
+        InstructionNode instr_node;
+        instr_node.idx = node.attribute("idx").as_ullong();
+
+        instr_node.instr = CreateInstruction(node.child_value("OP"));
+        instr_node.var = node.child_value("BasePointerName");
+        instr_node.const_val = node.attribute("CONST").as_int();
+
+        for (pugi::xml_node input = node.child("Inputs").child("Input"); input;
+                input = input.next_sibling("Input"))
+            instr_node.inputs.push_back(input.attribute("idx").as_ullong());
+
+        for (pugi::xml_node output = node.child("Outputs").child("Output"); output;
+                output = output.next_sibling("Output"))
+            instr_node.outputs.push_back(output.attribute("idx").as_ullong());
+
+        dfg[instr_node.idx] = instr_node;
+    }
+
+    return dfg;
+}
+
+static InstructionNode GetSelectNode(std::unordered_map<size_t, InstructionNode> dfg) {
+    for (auto& node : dfg) {
+        if (node.second.instr == Instruction::SELECT) {
+            return node.second;
         }
     }
 
-    return pugi::xml_node();
+    assert(false);
 }
 
-static pugi::xml_node FindChildFromOutputs(const pugi::xml_node& parent,
-    const char* child_name, const char* op) {
-    pugi::xml_node outputs = parent.child("Outputs");
-    if (outputs.empty())
-        return pugi::xml_node();
-
-    for (pugi::xml_node output = outputs.child("Output"); output;
-        output = output.next_sibling("Output")) {
-        pugi::xml_node out_node = parent.find_child_by_attribute("Node", "idx",
-            output.child_value("idx"));
-
-        if (!strcmp(out_node.child_value("OP"), op)) {
+static InstructionNode FindOutputByOp(std::unordered_map<size_t, InstructionNode> dfg,
+        InstructionNode node, Instruction op) {
+    for (auto& output : node.outputs) {
+        InstructionNode out_node = dfg[output];
+        if (out_node.instr == op)
             return out_node;
-        }
     }
 
-    return pugi::xml_node();
+    return InstructionNode();
 }
 
-static size_t GetLoopLength(const pugi::xml_node& dfg, const pugi::xml_node& select_node) {
-    pugi::xml_node outputs = select_node.child("Outputs");
-    if (outputs.empty())
-        return 0;
+static size_t GetLoopLength(std::unordered_map<size_t, InstructionNode> dfg) {
+    InstructionNode select_node = GetSelectNode(dfg);
+    assert(select_node.instr == Instruction::SELECT);
+    assert(!select_node.outputs.empty());
 
-    for (pugi::xml_node output = outputs.child("Output"); output;
-        output = output.next_sibling("Output")) {
-        pugi::xml_node out_node = dfg.find_child_by_attribute("Node", "idx",
-            output.attribute("idx").value());
+    InstructionNode add_node = FindOutputByOp(dfg, select_node, Instruction::ADD);
+    assert(add_node.instr == Instruction::ADD);
 
-        if (!strcmp(out_node.child_value("OP"), "ADD")) {
-            outputs = out_node.child("Outputs");
-            if (outputs.empty())
-                return 0;
+    InstructionNode cmp_node = FindOutputByOp(dfg, add_node, Instruction::CMP);
+    assert(cmp_node.instr == Instruction::CMP);
 
-            for (pugi::xml_node output = out_node.child("Output"); output;
-                output = output.next_sibling("Output")) {
-                pugi::xml_node out_node = dfg.find_child_by_attribute("Node", "idx",
-                    output.attribute("idx").value());
+    return cmp_node.const_val;
 
-                if (!strcmp(out_node.child_value("OP"), "CMP")) {
-                    return out_node.attribute("CONST").as_int();
-                }
+    for (auto& sel_output : select_node.outputs) {
+        InstructionNode cmp_node = dfg[sel_output];
+        if (cmp_node.instr == Instruction::ADD)
+            for (auto& cmp_output : cmp_node.outputs) {
+                InstructionNode loop_node = dfg[cmp_output];
+                if (loop_node.instr == Instruction::CMP)
+                    return loop_node.const_val;
             }
-        }
     }
 
     return 0;
 }
 
-static size_t GetLoopIncrement(const pugi::xml_node& dfg, const pugi::xml_node& select_node) {
-    pugi::xml_node outputs = select_node.child("Outputs");
-    if (outputs.empty())
-        return 0;
-    int i;
+static size_t GetLoopIncrement(std::unordered_map<size_t, InstructionNode> dfg) {
+    InstructionNode select_node = GetSelectNode(dfg);
+    assert(select_node.instr == Instruction::SELECT);
+    assert(!select_node.outputs.empty());
 
-    for (pugi::xml_node output = outputs.child("Output"); output;
-        output = output.next_sibling("Output")) {
-        pugi::xml_node out_node = dfg.find_child_by_attribute("Node", "idx",
-            output.attribute("idx").value());
+    InstructionNode add_node = FindOutputByOp(dfg, select_node, Instruction::ADD);
+    assert(add_node.instr == Instruction::ADD);
 
-        if (!strcmp(out_node.child_value("OP"), "ADD")) {
-            return out_node.attribute("CONST").as_int();
-        }
-    }
-
-    return 0;
+    return add_node.const_val;
 }
 
-TEST_FILE(SimpleArrayOperation){
-    Accelerator* accel = CreateAccelerator(versat);
+static int GetArrayIndex(const std::unordered_map<size_t, InstructionNode>& dfg,
+        size_t idx, const InstructionNode& node) {
+    int input1, input2;
+
+    std::cout << "GetArrayIndex()- idx = " << node.idx << "; loop idx = " << idx << '\n';
+
+    if (node.instr == Instruction::SELECT)
+        return idx;
+
+    assert(!node.inputs.empty());
+
+    if (node.inputs.size() == 1)
+        input2 = node.const_val;
+    else
+        input2 = GetArrayIndex(dfg, idx, dfg.at(node.inputs[1]));
+
+    input1 = GetArrayIndex(dfg, idx, dfg.at(node.inputs[0]));
+
+    switch (node.instr)
+    {
+    case Instruction::ADD:
+        return input1 + input2;
+    
+    case Instruction::SUB:
+        return input1 - input2;
+
+    case Instruction::MUL:
+        return input1 * input2;
+
+    case Instruction::DIV:
+        return input1 / input2;
+
+    case Instruction::SHL:
+        return input1 << input2;
+
+    case Instruction::SHR:
+        return input1 >> input2;
+
+    default:
+        std::cerr << "Unsupported operation " << static_cast<int>(node.instr) << '\n';
+        assert(0);
+    }
+}
+
+static int GetLoadIndex(std::unordered_map<size_t, InstructionNode>& dfg,
+        size_t loop_idx, const InstructionNode& load_node) {
+    std::cout << "Load node: " << load_node.idx << "; loop idx = " << loop_idx << '\n';
+
+    assert(load_node.inputs.size() == 1);
+    InstructionNode add_node = dfg[load_node.inputs[0]];
+    assert(add_node.instr == Instruction::ADD);
+
+    assert(add_node.inputs.size() == 1);
+    InstructionNode ls_node = dfg[add_node.inputs[0]];
+    assert(ls_node.instr == Instruction::LS);
+
+    assert(ls_node.inputs.size() == 1);
+    return GetArrayIndex(dfg, loop_idx, dfg[ls_node.inputs[0]]);
+}
+
+static int RunInstruction(Versat *versat,
+        std::unordered_map<std::string, std::vector<ArrayElem>>& arrays,
+        size_t loop_idx, std::unordered_map<size_t, InstructionNode>& dfg,
+        const InstructionNode& node) {
+    Accelerator* accel;
     FUInstance *inst;
+    FUDeclaration* type;
+    int input1, input2;
 
-    ArrayOp op = ArrayOp::ADD;
+    std::cout << "Running instruction: " << static_cast<int>(node.instr)
+        << "; idx = " << node.idx << "; loop_idx = " << loop_idx << '\n';
+
+    assert(!node.inputs.empty());
+
+    if (node.instr == Instruction::LOAD) {
+        int idx = GetLoadIndex(dfg, loop_idx, node);
+        std::cout << "After GetLoadIndex() - idx = " << idx << '\n';
+        return arrays[node.var][idx].initial;
+    }
+
+    input1 = RunInstruction(versat, arrays, loop_idx, dfg, dfg.at(node.inputs[0]));
+
+    if (node.inputs.size() > 1)
+        input2 = RunInstruction(versat,arrays, loop_idx, dfg, dfg.at(node.inputs[1]));
+    else
+        input2 = node.const_val;
+
+    std::cout << "Executing instruction - idx = " << node.idx << "; loop_idx = " << loop_idx << '\n';
+
+    switch (node.instr) {
+    case Instruction::ADD:
+        type = GetTypeByName(versat, MakeSizedString("ComplexAdder"));
+        assert(type != nullptr);
+
+        accel = CreateAccelerator(versat);
+        inst = CreateFUInstance(accel, type, MakeSizedString("Test"));
+
+        return ComplexAdderInstance(accel, input1, input2);
+
+    case Instruction::SHL:
+        input2 = 1 << input2;
+
+    case Instruction::MUL:
+        type = GetTypeByName(versat, MakeSizedString("ComplexMultiplier"));
+        assert(type != nullptr);
+
+        accel = CreateAccelerator(versat);
+        inst = CreateFUInstance(accel, type, MakeSizedString("Test"));
+
+        return ComplexMultiplierInstance(accel, input1, input2);
+
+    default:
+        std::cerr << "Unsupported operation " << static_cast<int>(node.instr) << '\n';
+        assert(0);
+    }
+}
+
+TEST_FILE(SimpleOperation){
     std::chrono::time_point<std::chrono::high_resolution_clock> start, end;
     std::chrono::milliseconds elapsed;
     std::vector<int> results;
     int res;
     size_t size = 0, incr = 0;
-    // std::unordered_map<int, pugi::xml_node> nodes;
-    // std::unordered_map<int, std::vector<int>> dfg;
-
-    pugi::xml_node xml_dfg = GeXMLDFG(dfg_file);
-    if (xml_dfg.empty()) {
-        return TestInfo(0);
-    }
-    // ConvertXMLToGraph(nodes, dfg);
-
-    for (pugi::xml_node node = xml_dfg.child("Node"); node; node = node.next_sibling("Node")) {
-        int idx = node.attribute("idx").as_int();
-        if (!strcmp(node.child_value("OP"), "MUL")) {
-            op = ArrayOp::MUL;
-            break;
-        }
-    }
-
-    pugi::xml_node select_node = FindChildByOp(xml_dfg, "Node", "SELECT");
-    assert(!select_node.empty());
-
-    incr = GetLoopIncrement(xml_dfg, select_node);
-    assert(incr);
 
     auto arrays = ReadArrays(data_file);
-    size = arrays["A"].size();
-    // size = GetLoopLength(xml_dfg, select_node);
-    assert(size == arrays["A"].size());
-    assert(size == arrays["B"].size());
-    assert(size == arrays["C"].size());
+    auto xml_dfg = ReadDFG(dfg_file);
+
+    assert(!arrays.empty());
+    assert(!xml_dfg.empty());
+
+    incr = GetLoopIncrement(xml_dfg);
+    assert(incr);
+
+    size = GetLoopLength(xml_dfg);
+    for (auto& array : arrays)
+        assert(array.second.size() == size);
+
+    size = 20;
+
+    InstructionNode store_node;
+    for (auto& node : xml_dfg)
+        if (node.second.instr == Instruction::STORE) {
+            store_node = node.second;
+            break;
+        }
+    assert(store_node.instr == Instruction::STORE);
+    assert(!store_node.inputs.empty());
+
+    InstructionNode last_node = xml_dfg[store_node.inputs.back()];
+    assert(last_node.instr != Instruction::ERR);
 
     start = std::chrono::high_resolution_clock::now();
-    if (op == ArrayOp::ADD) {
-        FUDeclaration* type = GetTypeByName(versat, MakeSizedString("ComplexAdder"));
-        accel = CreateAccelerator(versat);
-        inst = CreateFUInstance(accel, type, MakeSizedString("Test"));
-    } else if (op == ArrayOp::MUL) {
-        FUDeclaration* type = GetTypeByName(versat, MakeSizedString("ComplexMultiplier"));
-        assert(type != nullptr);
-        accel = CreateAccelerator(versat);
-        inst = CreateFUInstance(accel, type, MakeSizedString("Test"));
-    } else {
-        std::cerr << "Unknown operation\n";
-        return TestInfo(0);
-    }
 
     for(size_t i = 0; i < size; i += incr) {
-        if (op == ArrayOp::ADD) {
-            res = ComplexAdderInstance(accel, arrays["A"][i].initial, arrays["B"][i].initial);
-        } else if (op == ArrayOp::MUL) {
-            res = ComplexMultiplierInstance(accel, arrays["A"][i].initial, arrays["B"][i].initial);
-        } else {
-            std::cerr << "Unknown operation\n";
-            return TestInfo(0);
-        }
-
+        res = RunInstruction(versat, arrays, i, xml_dfg, last_node);
         results.push_back(res);
     }
 
@@ -726,8 +872,6 @@ TEST_FILE(SimpleArrayOperation){
             return TestInfo(0);
         }
     }
-
-    OutputVersatSource(versat,accel,"versat_instance.v","versat_defs.vh","versat_data.inc");
 
     return TestInfo(1); 
 }
@@ -888,9 +1032,9 @@ void AutomaticTests(Versat* versat){
     int currentTest = 0;
 
 #ifdef USE_MORPHER
-    TEST_INST(1, DisplayMorpherDFG);
-    TEST_INST_OPERATION(1, SimpleArrayOperation, "ArrayAdd");
-    TEST_INST_OPERATION(1, SimpleArrayOperation, "ElemProd");
+    TEST_INST(0, DisplayMorpherDFG);
+    TEST_INST_OPERATION(1, SimpleOperation, "ArrayAdd");
+    TEST_INST_OPERATION(1, SimpleOperation, "ElemProd");
 
     // TEST_INST(1, DotProduct);
 #endif  // USE_MORPHER
