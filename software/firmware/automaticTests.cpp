@@ -604,7 +604,7 @@ static Instruction CreateInstruction(const char* instruction_str) {
 
 struct InstructionNode {
     Instruction instr;
-    int const_val;
+    int const_val, offset;
     size_t idx;
     std::string var;
     std::vector<size_t> inputs;
@@ -630,6 +630,12 @@ std::unordered_map<size_t, InstructionNode> ReadDFG(const char* xml_file)
         instr_node.instr = CreateInstruction(node.child_value("OP"));
         instr_node.var = node.child_value("BasePointerName");
         instr_node.const_val = node.attribute("CONST").as_int();
+
+        std::string offset_str = node.child_value("GEPOffset");
+        if (!offset_str.empty())
+            instr_node.offset = std::stoi(offset_str);
+        else
+            instr_node.offset = -1;
 
         for (pugi::xml_node input = node.child("Inputs").child("Input"); input;
                 input = input.next_sibling("Input"))
@@ -703,66 +709,6 @@ static size_t GetLoopIncrement(std::unordered_map<size_t, InstructionNode> dfg) 
     return add_node.const_val;
 }
 
-static int GetArrayIndex(const std::unordered_map<size_t, InstructionNode>& dfg,
-        size_t idx, const InstructionNode& node) {
-    int input1, input2;
-
-    std::cout << "GetArrayIndex()- idx = " << node.idx << "; loop idx = " << idx << '\n';
-
-    if (node.instr == Instruction::SELECT)
-        return idx;
-
-    assert(!node.inputs.empty());
-
-    if (node.inputs.size() == 1)
-        input2 = node.const_val;
-    else
-        input2 = GetArrayIndex(dfg, idx, dfg.at(node.inputs[1]));
-
-    input1 = GetArrayIndex(dfg, idx, dfg.at(node.inputs[0]));
-
-    switch (node.instr)
-    {
-    case Instruction::ADD:
-        return input1 + input2;
-    
-    case Instruction::SUB:
-        return input1 - input2;
-
-    case Instruction::MUL:
-        return input1 * input2;
-
-    case Instruction::DIV:
-        return input1 / input2;
-
-    case Instruction::SHL:
-        return input1 << input2;
-
-    case Instruction::SHR:
-        return input1 >> input2;
-
-    default:
-        std::cerr << "Unsupported operation " << static_cast<int>(node.instr) << '\n';
-        assert(0);
-    }
-}
-
-static int GetLoadIndex(std::unordered_map<size_t, InstructionNode>& dfg,
-        size_t loop_idx, const InstructionNode& load_node) {
-    std::cout << "Load node: " << load_node.idx << "; loop idx = " << loop_idx << '\n';
-
-    assert(load_node.inputs.size() == 1);
-    InstructionNode add_node = dfg[load_node.inputs[0]];
-    assert(add_node.instr == Instruction::ADD);
-
-    assert(add_node.inputs.size() == 1);
-    InstructionNode ls_node = dfg[add_node.inputs[0]];
-    assert(ls_node.instr == Instruction::LS);
-
-    assert(ls_node.inputs.size() == 1);
-    return GetArrayIndex(dfg, loop_idx, dfg[ls_node.inputs[0]]);
-}
-
 static int RunInstruction(Versat *versat,
         std::unordered_map<std::string, std::vector<ArrayElem>>& arrays,
         size_t loop_idx, std::unordered_map<size_t, InstructionNode>& dfg,
@@ -772,27 +718,23 @@ static int RunInstruction(Versat *versat,
     FUDeclaration* type;
     int input1, input2;
 
-    std::cout << "Running instruction: " << static_cast<int>(node.instr)
-        << "; idx = " << node.idx << "; loop_idx = " << loop_idx << '\n';
-
     assert(!node.inputs.empty());
 
-    if (node.instr == Instruction::LOAD) {
-        int idx = GetLoadIndex(dfg, loop_idx, node);
-        std::cout << "After GetLoadIndex() - idx = " << idx << '\n';
-        return arrays[node.var][idx].initial;
+    if (node.instr != Instruction::LS) {
+        input1 = RunInstruction(versat, arrays, loop_idx, dfg, dfg.at(node.inputs[0]));
+
+        if (node.instr == Instruction::ADD && node.offset >= 0)
+            input2 = node.offset;
+        else if (node.inputs.size() > 1)
+            input2 = RunInstruction(versat,arrays, loop_idx, dfg, dfg.at(node.inputs[1]));
+        else
+            input2 = node.const_val;
     }
 
-    input1 = RunInstruction(versat, arrays, loop_idx, dfg, dfg.at(node.inputs[0]));
-
-    if (node.inputs.size() > 1)
-        input2 = RunInstruction(versat,arrays, loop_idx, dfg, dfg.at(node.inputs[1]));
-    else
-        input2 = node.const_val;
-
-    std::cout << "Executing instruction - idx = " << node.idx << "; loop_idx = " << loop_idx << '\n';
-
     switch (node.instr) {
+    case Instruction::LS:
+        return loop_idx;
+
     case Instruction::ADD:
         type = GetTypeByName(versat, MakeSizedString("ComplexAdder"));
         assert(type != nullptr);
@@ -814,6 +756,13 @@ static int RunInstruction(Versat *versat,
 
         return ComplexMultiplierInstance(accel, input1, input2);
 
+    case Instruction::LOAD:
+        return arrays[node.var][input1].initial;
+
+    case Instruction::STORE:
+        arrays[node.var][input1].initial = input2;
+        return input2;
+
     default:
         std::cerr << "Unsupported operation " << static_cast<int>(node.instr) << '\n';
         assert(0);
@@ -823,11 +772,12 @@ static int RunInstruction(Versat *versat,
 TEST_FILE(SimpleOperation){
     std::chrono::time_point<std::chrono::high_resolution_clock> start, end;
     std::chrono::milliseconds elapsed;
-    std::vector<int> results;
+    std::unordered_map<std::string, std::vector<ArrayElem>> initialArrays;
     int res;
     size_t size = 0, incr = 0;
 
     auto arrays = ReadArrays(data_file);
+    initialArrays = arrays;
     auto xml_dfg = ReadDFG(dfg_file);
 
     assert(!arrays.empty());
@@ -851,27 +801,24 @@ TEST_FILE(SimpleOperation){
     assert(store_node.instr == Instruction::STORE);
     assert(!store_node.inputs.empty());
 
-    InstructionNode last_node = xml_dfg[store_node.inputs.back()];
-    assert(last_node.instr != Instruction::ERR);
-
     start = std::chrono::high_resolution_clock::now();
 
-    for(size_t i = 0; i < size; i += incr) {
-        res = RunInstruction(versat, arrays, i, xml_dfg, last_node);
-        results.push_back(res);
-    }
+    for(size_t i = 0; i < size; i += incr)
+        RunInstruction(versat, arrays, i, xml_dfg, store_node);
 
     end = std::chrono::high_resolution_clock::now();
     elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(end - start);
 
     std::cout << "Elapsed time: " << elapsed.count() << "ms\n";
 
-    for(size_t i = 0; i < size; i++) {
-        if (results[i] != arrays["C"][i].final) {
-            std::cout << "Error at index " << i << ": " << results[i] << " != " << arrays["C"][i].final << '\n';
-            return TestInfo(0);
-        }
-    }
+    for (auto& array : arrays)
+        for (size_t i = 0; i < size; i++)
+            if (array.second[i].initial != array.second[i].final) {
+                std::cout << "Error: arr = " << array.first << "; i = " << i << ": "
+                    << array.second[i].initial << " != " << array.second[i].final << '\n';
+                return TestInfo(0);
+            }
+    
 
     return TestInfo(1); 
 }
