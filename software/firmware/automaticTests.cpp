@@ -16,9 +16,11 @@
 #include "versatAES.hpp"
 
 #ifdef USE_MORPHER
+#include <sstream>
+
 #include "pugixml.hpp"
 #include "pugiconfig.hpp"
-#endif
+#endif // USE_MORPHER
 
 extern "C"{
 #include "../test_vectors.h"
@@ -478,29 +480,42 @@ TEST(AESWithIterative){
    return EXPECT("0xdf 0x86 0x34 0xca 0x02 0xb1 0x3a 0x12 0x5b 0x78 0x6e 0x1d 0xce 0x90 0x65 0x8b ","%s",buffer);
 }
 
-#ifdef USE_MORPHER
+// #ifdef USE_MORPHER
 struct ArrayElem {
     int idx, initial, final;
     std::string name;
 };
 
+static int ReadNextToken(std::stringstream& s, std::string token) {
+    getline(s, token, ',');
+    // std::cout << token << '\n';
+    return std::stoi(token);    
+}
+
 std::istream& operator>>(std::istream& is, ArrayElem& e) {
     const size_t size = sizeof(e.initial);
-
+    std::string line, token;
     int init[4], fin[4];
     char delim;
 
     for (size_t i = 0; i < size; i++) {
-        getline(is, e.name, ' ');
+        getline(is, line);
+        std::stringstream s(line);
+
+        getline(s, e.name, ',');
         if (e.name[0] == '\n')
             e.name.erase(0, 1);
 
-        if (e.name == "loopstart" || e.name == "loopend") {
-            int tmp;
-            is >> tmp >> tmp >> tmp;
-            return is;
-        }
-        is >> e.idx >> init[i] >> fin[i];
+        // std::cout << "name = " << e.name << '; \n';
+        if (e.name.empty())
+            break;
+
+        e.idx = ReadNextToken(s, token);
+        init[i] = ReadNextToken(s, token);
+        fin[i] = ReadNextToken(s, token);
+
+        if (e.name == "loopstart" || e.name == "loopend")
+            break;
     }
 
     e.initial = init[0] | (init[1] << 8) | (init[2] << 16) | (init[3] << 24);
@@ -515,6 +530,7 @@ std::unordered_map<std::string, std::vector<ArrayElem>> ReadArrays(
     std::string line;
     size_t offset;
     auto ifs = std::ifstream(arrays_filename);
+    ArrayElem elem;
 
     if (!ifs.is_open()) {
         std::cerr << "Could not open file " << arrays_filename << '\n';
@@ -523,9 +539,8 @@ std::unordered_map<std::string, std::vector<ArrayElem>> ReadArrays(
 
     getline(ifs, line); // skip first line (header)
     while (!ifs.eof()) {
-        ArrayElem elem;
         ifs >> elem;
-        if (elem.name != "loopstart" && elem.name != "loopend" && elem.name != "")
+        if (!elem.name.empty())
             arrays[elem.name].emplace_back(elem);
     }
 
@@ -779,6 +794,9 @@ TEST_FILE(SimpleOperation){
     auto arrays = ReadArrays(data_file);
     initialArrays = arrays;
     auto xml_dfg = ReadDFG(dfg_file);
+
+    arrays.erase("loopstart");
+    arrays.erase("loopend");
 
     assert(!arrays.empty());
     assert(!xml_dfg.empty());
