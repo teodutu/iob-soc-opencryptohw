@@ -480,7 +480,7 @@ TEST(AESWithIterative){
    return EXPECT("0xdf 0x86 0x34 0xca 0x02 0xb1 0x3a 0x12 0x5b 0x78 0x6e 0x1d 0xce 0x90 0x65 0x8b ","%s",buffer);
 }
 
-// #ifdef USE_MORPHER
+#ifdef USE_MORPHER
 struct ArrayElem {
     int idx, initial, final;
     std::string name;
@@ -806,7 +806,7 @@ TEST_FILE(SimpleOperation){
 
     size = GetLoopLength(xml_dfg);
     for (auto& array : arrays)
-        assert(array.second.size() == size);
+        assert(array.second.size() >= size);
 
     size = 20;
 
@@ -966,28 +966,17 @@ TEST(DisplayMorpherDFG){
         currentTest += 1;                                               \
     } while (0)
 
-#define TEST_INST_FILE(ENABLED, TEST_NAME)                                          \
-    do {                                                                            \
-        if (ENABLE_TEST(ENABLED)) {                                                 \
-            TestInfo test = TEST_NAME(versat, currentTest, #TEST_NAME ".xml",       \
-                #TEST_NAME ".csv");                                                 \
-            if (test.testsPassed == test.numberTests)                               \
-                printf("%32s [%02d] - OK\n", #TEST_NAME, currentTest);              \
-            info += test;                                                           \
-        }                                                                           \
-        currentTest += 1;                                                           \
-    } while (0)
-
-#define TEST_INST_OPERATION(ENABLED, TEST_NAME, OPERATION)                          \
-    do {                                                                            \
-        if (ENABLE_TEST(ENABLED)) {                                                 \
-            TestInfo test = TEST_NAME(versat, currentTest, OPERATION".xml",         \
-                OPERATION".csv");                                                   \
-            if (test.testsPassed == test.numberTests)                               \
-                printf("%32s [%02d] - OK\n", #OPERATION, currentTest);              \
-            info += test;                                                           \
-        }                                                                           \
-        currentTest += 1;                                                           \
+#define TEST_INST_OPERATION(ENABLED, TEST_NAME, OPERATION)              \
+    do {                                                                \
+        if (ENABLE_TEST(ENABLED)) {                                     \
+            TestInfo test = TEST_NAME(versat, currentTest,              \
+                "morpher_files/" OPERATION ".xml",                      \
+                "morpher_files/" OPERATION ".csv");                     \
+            if (test.testsPassed == test.numberTests)                   \
+                printf("%32s [%02d] - OK\n", #OPERATION, currentTest);  \
+            info += test;                                               \
+        }                                                               \
+        currentTest += 1;                                               \
     } while (0)
 
 
@@ -1000,6 +989,8 @@ void AutomaticTests(Versat* versat){
     TEST_INST(0, DisplayMorpherDFG);
     TEST_INST_OPERATION(1, SimpleOperation, "ArrayAdd");
     TEST_INST_OPERATION(1, SimpleOperation, "ElemProd");
+    TEST_INST_OPERATION(1, SimpleOperation, "Conv2");
+    TEST_INST_OPERATION(1, SimpleOperation, "Conv3");
 
     // TEST_INST(1, DotProduct);
 #endif  // USE_MORPHER
