@@ -644,7 +644,12 @@ std::unordered_map<size_t, InstructionNode> ReadDFG(const char* xml_file)
 
         instr_node.instr = CreateInstruction(node.child_value("OP"));
         instr_node.var = node.child_value("BasePointerName");
-        instr_node.const_val = node.attribute("CONST").as_int();
+
+        pugi::xml_attribute const_attr = node.attribute("CONST");
+        if (const_attr)
+            instr_node.const_val = const_attr.as_int();
+        else
+            instr_node.const_val = -1;
 
         std::string offset_str = node.child_value("GEPOffset");
         if (!offset_str.empty())
@@ -666,62 +671,72 @@ std::unordered_map<size_t, InstructionNode> ReadDFG(const char* xml_file)
     return dfg;
 }
 
-static InstructionNode GetSelectNode(std::unordered_map<size_t, InstructionNode> dfg) {
+static InstructionNode FindNodeByOp(std::unordered_map<size_t, InstructionNode> dfg,
+        Instruction op) {
     for (auto& node : dfg) {
-        if (node.second.instr == Instruction::SELECT) {
+        if (node.second.instr == op)
             return node.second;
-        }
-    }
-
-    assert(false);
-}
-
-static InstructionNode FindOutputByOp(std::unordered_map<size_t, InstructionNode> dfg,
-        InstructionNode node, Instruction op) {
-    for (auto& output : node.outputs) {
-        InstructionNode out_node = dfg[output];
-        if (out_node.instr == op)
-            return out_node;
     }
 
     return InstructionNode();
 }
 
 static size_t GetLoopLength(std::unordered_map<size_t, InstructionNode> dfg) {
-    InstructionNode select_node = GetSelectNode(dfg);
-    assert(select_node.instr == Instruction::SELECT);
-    assert(!select_node.outputs.empty());
+    InstructionNode cmp_node, add_node, select_node;
 
-    InstructionNode add_node = FindOutputByOp(dfg, select_node, Instruction::ADD);
-    assert(add_node.instr == Instruction::ADD);
+    for (auto& node : dfg) {
+        cmp_node = node.second;
+        if (cmp_node.instr != Instruction::CMP || cmp_node.inputs.size() != 1)
+            continue;
 
-    InstructionNode cmp_node = FindOutputByOp(dfg, add_node, Instruction::CMP);
-    assert(cmp_node.instr == Instruction::CMP);
+        add_node = dfg[cmp_node.inputs[0]];
+        if (add_node.instr != Instruction::ADD || add_node.inputs.size() != 1)
+            continue;
 
-    return cmp_node.const_val;
+        select_node = dfg[add_node.inputs[0]];
+        if (select_node.instr != Instruction::SELECT)
+            continue;
 
-    for (auto& sel_output : select_node.outputs) {
-        InstructionNode cmp_node = dfg[sel_output];
-        if (cmp_node.instr == Instruction::ADD)
-            for (auto& cmp_output : cmp_node.outputs) {
-                InstructionNode loop_node = dfg[cmp_output];
-                if (loop_node.instr == Instruction::CMP)
-                    return loop_node.const_val;
-            }
+        return cmp_node.const_val;
     }
 
     return 0;
 }
 
 static size_t GetLoopIncrement(std::unordered_map<size_t, InstructionNode> dfg) {
-    InstructionNode select_node = GetSelectNode(dfg);
+    InstructionNode cmp_node, add_node, select_node;
+
+    for (auto& node : dfg) {
+        cmp_node = node.second;
+        if (cmp_node.instr != Instruction::CMP || cmp_node.inputs.size() != 1)
+            continue;
+
+        add_node = dfg[cmp_node.inputs[0]];
+        if (add_node.instr != Instruction::ADD || add_node.inputs.size() != 1)
+            continue;
+
+        select_node = dfg[add_node.inputs[0]];
+        if (select_node.instr != Instruction::SELECT)
+            continue;
+
+        return add_node.const_val;
+    }
+
+    return 0;
+}
+
+static size_t GetLoopStart(std::unordered_map<size_t, InstructionNode> dfg) {
+    InstructionNode select_node = FindNodeByOp(dfg, Instruction::SELECT);
     assert(select_node.instr == Instruction::SELECT);
-    assert(!select_node.outputs.empty());
+    assert(!select_node.inputs.empty());
 
-    InstructionNode add_node = FindOutputByOp(dfg, select_node, Instruction::ADD);
-    assert(add_node.instr == Instruction::ADD);
+    for (auto& input : select_node.inputs) {
+        InstructionNode cmerge_node = dfg[input];
+        if (cmerge_node.instr == Instruction::CMERGE && cmerge_node.const_val != -1)
+            return cmerge_node.const_val;
+    }
 
-    return add_node.const_val;
+    return 0;
 }
 
 static int RunInstruction(Versat *versat,
@@ -735,7 +750,7 @@ static int RunInstruction(Versat *versat,
 
     assert(!node.inputs.empty());
 
-    if (node.instr != Instruction::LS) {
+    if (node.instr != Instruction::SELECT) {
         input1 = RunInstruction(versat, arrays, loop_idx, dfg, dfg.at(node.inputs[0]));
 
         if (node.instr == Instruction::ADD && node.offset >= 0)
@@ -747,8 +762,11 @@ static int RunInstruction(Versat *versat,
     }
 
     switch (node.instr) {
-    case Instruction::LS:
+    case Instruction::SELECT:
         return loop_idx;
+
+    case Instruction::LS:
+        return input1;
 
     case Instruction::ADD:
         type = GetTypeByName(versat, MakeSizedString("ComplexAdder"));
@@ -808,8 +826,6 @@ TEST_FILE(SimpleOperation){
     for (auto& array : arrays)
         assert(array.second.size() >= size);
 
-    size = 20;
-
     InstructionNode store_node;
     for (auto& node : xml_dfg)
         if (node.second.instr == Instruction::STORE) {
@@ -821,7 +837,7 @@ TEST_FILE(SimpleOperation){
 
     start = std::chrono::high_resolution_clock::now();
 
-    for(size_t i = 0; i < size; i += incr)
+    for(size_t i = GetLoopStart(xml_dfg); i < size; i += incr)
         RunInstruction(versat, arrays, i, xml_dfg, store_node);
 
     end = std::chrono::high_resolution_clock::now();
@@ -836,7 +852,6 @@ TEST_FILE(SimpleOperation){
                     << array.second[i].initial << " != " << array.second[i].final << '\n';
                 return TestInfo(0);
             }
-    
 
     return TestInfo(1); 
 }
