@@ -16,6 +16,7 @@
 #include "versatAES.hpp"
 
 #ifdef USE_MORPHER
+#include <filesystem>
 #include <sstream>
 
 #include "pugixml.hpp"
@@ -110,6 +111,8 @@ static TestInfo Expect_(const char* functionName,int testNumber, const char* exp
 #define TEST(TEST_NAME) static TestInfo TEST_NAME(Versat* versat,int testNumber)
 #define TEST_FILE(TEST_NAME) static TestInfo TEST_NAME(Versat* versat, int testNumber, \
     const char* dfg_file, const char* data_file)
+#define TEST_FILES(TEST_NAME) static TestInfo TEST_NAME(Versat* versat, int testNumber, \
+    const char* dfg_file, const char* data_files_path)
 
 #include <cstdlib>
 
@@ -572,6 +575,7 @@ enum class Instruction {
     SHL,
     SHR,
     LOAD,
+    OLOAD,
     STORE,
     LOADB,
     STOREB,
@@ -583,33 +587,35 @@ enum class Instruction {
 };
 
 static Instruction CreateInstruction(const char* instruction_str) {
-    if (strcmp(instruction_str, "ADD") == 0)
+    if (!strcmp(instruction_str, "ADD"))
         return Instruction::ADD;
-    else if (strcmp(instruction_str, "MUL") == 0)
+    else if (!strcmp(instruction_str, "MUL"))
         return Instruction::MUL;
-    else if (strcmp(instruction_str, "DIV") == 0)
+    else if (!strcmp(instruction_str, "DIV"))
         return Instruction::DIV;
-    else if (strcmp(instruction_str, "SHL") == 0)
+    else if (!strcmp(instruction_str, "SHL"))
         return Instruction::SHL;
-    else if (strcmp(instruction_str, "SHR") == 0)
+    else if (!strcmp(instruction_str, "SHR"))
         return Instruction::SHR;
-    else if (strcmp(instruction_str, "LOAD") == 0)
+    else if (!strcmp(instruction_str, "LOAD"))
         return Instruction::LOAD;
-    else if (strcmp(instruction_str, "STORE") == 0)
+    else if (!strcmp(instruction_str, "OLOAD"))
+        return Instruction::OLOAD;
+    else if (!strcmp(instruction_str, "STORE"))
         return Instruction::STORE;
-    else if (strcmp(instruction_str, "LOADB") == 0)
+    else if (!strcmp(instruction_str, "LOADB"))
         return Instruction::LOADB;
-    else if (strcmp(instruction_str, "STOREB") == 0)
+    else if (!strcmp(instruction_str, "STOREB"))
         return Instruction::STOREB;
-    else if (strcmp(instruction_str, "LS") == 0)
+    else if (!strcmp(instruction_str, "LS"))
         return Instruction::LS;
-    else if (strcmp(instruction_str, "CMERGE") == 0)
+    else if (!strcmp(instruction_str, "CMERGE"))
         return Instruction::CMERGE;
-    else if (strcmp(instruction_str, "MOVC") == 0)
+    else if (!strcmp(instruction_str, "MOVC"))
         return Instruction::MOVC;
-    else if (strcmp(instruction_str, "CMP") == 0)
+    else if (!strcmp(instruction_str, "CMP"))
         return Instruction::CMP;
-    else if (strcmp(instruction_str, "SELECT") == 0)
+    else if (!strcmp(instruction_str, "SELECT"))
         return Instruction::SELECT;
     else {
         std::cerr << "Invalid instruction: " << instruction_str << '\n';
@@ -748,9 +754,10 @@ static int RunInstruction(Versat *versat,
     FUDeclaration* type;
     int input1, input2;
 
-    assert(!node.inputs.empty());
-
-    if (node.instr != Instruction::SELECT) {
+    if (node.instr == Instruction::STORE && node.inputs.size() > 2) {
+        input1 = RunInstruction(versat,arrays, loop_idx, dfg, dfg[node.inputs[0]]);
+        input2 = RunInstruction(versat,arrays, loop_idx, dfg, dfg[node.inputs[1]]);
+    } else if (node.instr != Instruction::SELECT && !node.inputs.empty()) {
         input1 = RunInstruction(versat, arrays, loop_idx, dfg, dfg.at(node.inputs[0]));
 
         if (node.instr == Instruction::ADD && node.offset >= 0)
@@ -789,6 +796,15 @@ static int RunInstruction(Versat *versat,
 
         return ComplexMultiplierInstance(accel, input1, input2);
 
+    case Instruction::OLOAD:
+        type = GetTypeByName(versat, MakeSizedString("ComplexAdder"));
+        assert(type != nullptr);
+
+        accel = CreateAccelerator(versat);
+        inst = CreateFUInstance(accel, type, MakeSizedString("Test"));
+
+        return ComplexAdderInstance(accel, arrays[node.var][0].initial, -2048) >> 2;
+
     case Instruction::LOAD:
         return arrays[node.var][input1].initial;
 
@@ -802,7 +818,7 @@ static int RunInstruction(Versat *versat,
     }
 }
 
-TEST_FILE(SimpleOperation){
+TEST_FILE(MorpherApplication){
     std::chrono::time_point<std::chrono::high_resolution_clock> start, end;
     std::chrono::milliseconds elapsed;
     std::unordered_map<std::string, std::vector<ArrayElem>> initialArrays;
@@ -823,8 +839,6 @@ TEST_FILE(SimpleOperation){
     assert(incr);
 
     size = GetLoopLength(xml_dfg);
-    for (auto& array : arrays)
-        assert(array.second.size() >= size);
 
     InstructionNode store_node;
     for (auto& node : xml_dfg)
@@ -846,14 +860,26 @@ TEST_FILE(SimpleOperation){
     std::cout << "Elapsed time: " << elapsed.count() << "ms\n";
 
     for (auto& array : arrays)
-        for (size_t i = 0; i < size; i++)
+        for (size_t i = 0; i < array.second.size(); i++)
             if (array.second[i].initial != array.second[i].final) {
-                std::cout << "Error: arr = " << array.first << "; i = " << i << ": "
+                std::cout << "ERROR - " << array.first << "[" << i << "]: "
                     << array.second[i].initial << " != " << array.second[i].final << '\n';
                 return TestInfo(0);
             }
 
     return TestInfo(1); 
+}
+
+TEST_FILES(MorpherNestedLoop) {
+    for (const auto& dir_entry :
+            std::filesystem::recursive_directory_iterator(data_files_path)) {
+        TestInfo test = MorpherApplication(versat, testNumber, dfg_file,
+                dir_entry.path().c_str());
+        if (test.testsPassed != test.numberTests)
+            return test;
+    }
+
+    return TestInfo(1);
 }
 
 TEST(DotProduct){
@@ -981,12 +1007,12 @@ TEST(DisplayMorpherDFG){
         currentTest += 1;                                               \
     } while (0)
 
-#define TEST_INST_OPERATION(ENABLED, TEST_NAME, OPERATION)              \
+#define TEST_MORPHER_APPLICATION(ENABLED, TEST_NAME, OPERATION)         \
     do {                                                                \
         if (ENABLE_TEST(ENABLED)) {                                     \
             TestInfo test = TEST_NAME(versat, currentTest,              \
-                "morpher_files/" OPERATION ".xml",                      \
-                "morpher_files/" OPERATION ".csv");                     \
+                "morpher_files/" OPERATION "/" OPERATION ".xml",        \
+                "morpher_files/" OPERATION "/" OPERATION ".csv");       \
             if (test.testsPassed == test.numberTests)                   \
                 printf("%32s [%02d] - OK\n", #OPERATION, currentTest);  \
             info += test;                                               \
@@ -994,6 +1020,18 @@ TEST(DisplayMorpherDFG){
         currentTest += 1;                                               \
     } while (0)
 
+#define TEST_MORPHER_NESTED_LOOP_APPLICATION(ENABLED, TEST_NAME, OPERATION) \
+    do {                                                                    \
+        if (ENABLE_TEST(ENABLED)) {                                         \
+            TestInfo test = TEST_NAME(versat, currentTest,                  \
+                "morpher_files/" OPERATION "/" OPERATION ".xml",            \
+                "morpher_files/" OPERATION "/inputs");                      \
+            if (test.testsPassed == test.numberTests)                       \
+                printf("%32s [%02d] - OK\n", #OPERATION, currentTest);      \
+            info += test;                                                   \
+        }                                                                   \
+        currentTest += 1;                                                   \
+    } while (0)
 
 void AutomaticTests(Versat* versat){
     TestInfo info = TestInfo(0,0);
@@ -1002,10 +1040,11 @@ void AutomaticTests(Versat* versat){
 
 #ifdef USE_MORPHER
     TEST_INST(0, DisplayMorpherDFG);
-    TEST_INST_OPERATION(1, SimpleOperation, "ArrayAdd");
-    TEST_INST_OPERATION(1, SimpleOperation, "ElemProd");
-    TEST_INST_OPERATION(1, SimpleOperation, "Conv2");
-    TEST_INST_OPERATION(1, SimpleOperation, "Conv3");
+    TEST_MORPHER_APPLICATION(1, MorpherApplication, "ArrayAdd");
+    TEST_MORPHER_APPLICATION(1, MorpherApplication, "ElemProd");
+    TEST_MORPHER_APPLICATION(1, MorpherApplication, "Conv2");
+    TEST_MORPHER_APPLICATION(1, MorpherApplication, "Conv3");
+    TEST_MORPHER_NESTED_LOOP_APPLICATION(1, MorpherNestedLoop, "Kernel");
 
     // TEST_INST(1, DotProduct);
 #endif  // USE_MORPHER
