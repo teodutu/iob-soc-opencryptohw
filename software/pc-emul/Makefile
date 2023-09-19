@@ -75,8 +75,8 @@ UNIT_VERILOG += $(foreach unit,$(VERILATE_UNIT),$(HW_DIR)/src/units/$(unit).v)
 UNIT_HDR+=$(foreach obj,$(VERILATE_UNIT),./build/V$(obj).h)
 OBJ+=./build/firmware.o
 ifeq ($(USE_MORPHER), 1)
-SRC+=$(XML_DIR)/src/pugixml.cpp
-INCLUDE+=-I$(XML_DIR)/src
+SRC+=$(XML_DIR)/src/pugixml.cpp $(MORPHER_DIR)/*.cpp
+INCLUDE+=-I$(XML_DIR)/src -I$(MORPHER_DIR)/
 DEFINE+=$(defmacro)USE_MORPHER
 endif
 

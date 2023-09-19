@@ -21,6 +21,7 @@
 
 #include "pugixml.hpp"
 #include "pugiconfig.hpp"
+#include "MorpherInterpreter.h"
 #endif // USE_MORPHER
 
 extern "C"{
@@ -484,72 +485,6 @@ TEST(AESWithIterative){
 }
 
 #ifdef USE_MORPHER
-struct ArrayElem {
-    int idx, initial, final;
-    std::string name;
-};
-
-static int ReadNextToken(std::stringstream& s, std::string token) {
-    getline(s, token, ',');
-    // std::cout << token << '\n';
-    return std::stoi(token);    
-}
-
-std::istream& operator>>(std::istream& is, ArrayElem& e) {
-    const size_t size = sizeof(e.initial);
-    std::string line, token;
-    int init[4], fin[4];
-    char delim;
-
-    for (size_t i = 0; i < size; i++) {
-        getline(is, line);
-        std::stringstream s(line);
-
-        getline(s, e.name, ',');
-        if (e.name[0] == '\n')
-            e.name.erase(0, 1);
-
-        // std::cout << "name = " << e.name << '; \n';
-        if (e.name.empty())
-            break;
-
-        e.idx = ReadNextToken(s, token);
-        init[i] = ReadNextToken(s, token);
-        fin[i] = ReadNextToken(s, token);
-
-        if (e.name == "loopstart" || e.name == "loopend")
-            break;
-    }
-
-    e.initial = init[0] | (init[1] << 8) | (init[2] << 16) | (init[3] << 24);
-    e.final = fin[0] | (fin[1] << 8) | (fin[2] << 16) | (fin[3] << 24);
-
-    return is;
-}
-
-std::unordered_map<std::string, std::vector<ArrayElem>> ReadArrays(
-    const char* arrays_filename) {
-    std::unordered_map<std::string, std::vector<ArrayElem>> arrays;
-    std::string line;
-    size_t offset;
-    auto ifs = std::ifstream(arrays_filename);
-    ArrayElem elem;
-
-    if (!ifs.is_open()) {
-        std::cerr << "Could not open file " << arrays_filename << '\n';
-        return arrays;
-    }
-
-    getline(ifs, line); // skip first line (header)
-    while (!ifs.eof()) {
-        ifs >> elem;
-        if (!elem.name.empty())
-            arrays[elem.name].emplace_back(elem);
-    }
-
-    return arrays;
-}
-
 pugi::xml_node GeXMLDFG(const char* xml_file)
 {
     pugi::xml_document doc;
@@ -566,320 +501,13 @@ pugi::xml_node GeXMLDFG(const char* xml_file)
     return doc.child("xml").child("DFG");
 }
 
-enum class Instruction {
-    ERR = 0,
-    ADD,
-    SUB,
-    MUL,
-    DIV,
-    SHL,
-    SHR,
-    LOAD,
-    OLOAD,
-    STORE,
-    LOADB,
-    STOREB,
-    LS,
-    CMERGE,
-    MOVC,
-    CMP,
-    SELECT,
-};
-
-static Instruction CreateInstruction(const char* instruction_str) {
-    if (!strcmp(instruction_str, "ADD"))
-        return Instruction::ADD;
-    else if (!strcmp(instruction_str, "MUL"))
-        return Instruction::MUL;
-    else if (!strcmp(instruction_str, "DIV"))
-        return Instruction::DIV;
-    else if (!strcmp(instruction_str, "SHL"))
-        return Instruction::SHL;
-    else if (!strcmp(instruction_str, "SHR"))
-        return Instruction::SHR;
-    else if (!strcmp(instruction_str, "LOAD"))
-        return Instruction::LOAD;
-    else if (!strcmp(instruction_str, "OLOAD"))
-        return Instruction::OLOAD;
-    else if (!strcmp(instruction_str, "STORE"))
-        return Instruction::STORE;
-    else if (!strcmp(instruction_str, "LOADB"))
-        return Instruction::LOADB;
-    else if (!strcmp(instruction_str, "STOREB"))
-        return Instruction::STOREB;
-    else if (!strcmp(instruction_str, "LS"))
-        return Instruction::LS;
-    else if (!strcmp(instruction_str, "CMERGE"))
-        return Instruction::CMERGE;
-    else if (!strcmp(instruction_str, "MOVC"))
-        return Instruction::MOVC;
-    else if (!strcmp(instruction_str, "CMP"))
-        return Instruction::CMP;
-    else if (!strcmp(instruction_str, "SELECT"))
-        return Instruction::SELECT;
-    else {
-        std::cerr << "Invalid instruction: " << instruction_str << '\n';
-        assert(false);
-    }
-}
-
-struct InstructionNode {
-    Instruction instr;
-    int const_val, offset;
-    size_t idx;
-    std::string var;
-    std::vector<size_t> inputs;
-    std::vector<size_t> outputs;
-};
-
-std::unordered_map<size_t, InstructionNode> ReadDFG(const char* xml_file)
-{
-    std::unordered_map<size_t, InstructionNode> dfg;
-    pugi::xml_node pugi_dfg = GeXMLDFG(xml_file);
-    std::string var_name;
-    size_t const_val;
-    
-    if (!pugi_dfg) {
-        std::cerr << "Could not parse XML file " << xml_file << '\n';
-        return dfg;
-    }
-
-    for (pugi::xml_node node = pugi_dfg.child("Node"); node; node = node.next_sibling("Node")) {
-        InstructionNode instr_node;
-        instr_node.idx = node.attribute("idx").as_ullong();
-
-        instr_node.instr = CreateInstruction(node.child_value("OP"));
-        instr_node.var = node.child_value("BasePointerName");
-
-        pugi::xml_attribute const_attr = node.attribute("CONST");
-        if (const_attr)
-            instr_node.const_val = const_attr.as_int();
-        else
-            instr_node.const_val = -1;
-
-        std::string offset_str = node.child_value("GEPOffset");
-        if (!offset_str.empty())
-            instr_node.offset = std::stoi(offset_str);
-        else
-            instr_node.offset = -1;
-
-        for (pugi::xml_node input = node.child("Inputs").child("Input"); input;
-                input = input.next_sibling("Input"))
-            instr_node.inputs.push_back(input.attribute("idx").as_ullong());
-
-        for (pugi::xml_node output = node.child("Outputs").child("Output"); output;
-                output = output.next_sibling("Output"))
-            instr_node.outputs.push_back(output.attribute("idx").as_ullong());
-
-        dfg[instr_node.idx] = instr_node;
-    }
-
-    return dfg;
-}
-
-static InstructionNode FindNodeByOp(std::unordered_map<size_t, InstructionNode> dfg,
-        Instruction op) {
-    for (auto& node : dfg) {
-        if (node.second.instr == op)
-            return node.second;
-    }
-
-    return InstructionNode();
-}
-
-static size_t GetLoopLength(std::unordered_map<size_t, InstructionNode> dfg) {
-    InstructionNode cmp_node, add_node, select_node;
-
-    for (auto& node : dfg) {
-        cmp_node = node.second;
-        if (cmp_node.instr != Instruction::CMP || cmp_node.inputs.size() != 1)
-            continue;
-
-        add_node = dfg[cmp_node.inputs[0]];
-        if (add_node.instr != Instruction::ADD || add_node.inputs.size() != 1)
-            continue;
-
-        select_node = dfg[add_node.inputs[0]];
-        if (select_node.instr != Instruction::SELECT)
-            continue;
-
-        return cmp_node.const_val;
-    }
-
-    return 0;
-}
-
-static size_t GetLoopIncrement(std::unordered_map<size_t, InstructionNode> dfg) {
-    InstructionNode cmp_node, add_node, select_node;
-
-    for (auto& node : dfg) {
-        cmp_node = node.second;
-        if (cmp_node.instr != Instruction::CMP || cmp_node.inputs.size() != 1)
-            continue;
-
-        add_node = dfg[cmp_node.inputs[0]];
-        if (add_node.instr != Instruction::ADD || add_node.inputs.size() != 1)
-            continue;
-
-        select_node = dfg[add_node.inputs[0]];
-        if (select_node.instr != Instruction::SELECT)
-            continue;
-
-        return add_node.const_val;
-    }
-
-    return 0;
-}
-
-static size_t GetLoopStart(std::unordered_map<size_t, InstructionNode> dfg) {
-    InstructionNode select_node = FindNodeByOp(dfg, Instruction::SELECT);
-    assert(select_node.instr == Instruction::SELECT);
-    assert(!select_node.inputs.empty());
-
-    for (auto& input : select_node.inputs) {
-        InstructionNode cmerge_node = dfg[input];
-        if (cmerge_node.instr == Instruction::CMERGE && cmerge_node.const_val != -1)
-            return cmerge_node.const_val;
-    }
-
-    return 0;
-}
-
-static int RunInstruction(Versat *versat,
-        std::unordered_map<std::string, std::vector<ArrayElem>>& arrays,
-        size_t loop_idx, std::unordered_map<size_t, InstructionNode>& dfg,
-        const InstructionNode& node) {
-    Accelerator* accel;
-    FUInstance *inst;
-    FUDeclaration* type;
-    int input1, input2;
-
-    if (node.instr == Instruction::STORE && node.inputs.size() > 2) {
-        input1 = RunInstruction(versat,arrays, loop_idx, dfg, dfg[node.inputs[0]]);
-        input2 = RunInstruction(versat,arrays, loop_idx, dfg, dfg[node.inputs[1]]);
-    } else if (node.instr != Instruction::SELECT && !node.inputs.empty()) {
-        input1 = RunInstruction(versat, arrays, loop_idx, dfg, dfg.at(node.inputs[0]));
-
-        if (node.instr == Instruction::ADD && node.offset >= 0)
-            input2 = node.offset;
-        else if (node.inputs.size() > 1)
-            input2 = RunInstruction(versat,arrays, loop_idx, dfg, dfg.at(node.inputs[1]));
-        else
-            input2 = node.const_val;
-    }
-
-    switch (node.instr) {
-    case Instruction::SELECT:
-        return loop_idx;
-
-    case Instruction::LS:
-        return input1;
-
-    case Instruction::ADD:
-        type = GetTypeByName(versat, MakeSizedString("ComplexAdder"));
-        assert(type != nullptr);
-
-        accel = CreateAccelerator(versat);
-        inst = CreateFUInstance(accel, type, MakeSizedString("Test"));
-
-        return ComplexAdderInstance(accel, input1, input2);
-
-    case Instruction::SHL:
-        input2 = 1 << input2;
-
-    case Instruction::MUL:
-        type = GetTypeByName(versat, MakeSizedString("ComplexMultiplier"));
-        assert(type != nullptr);
-
-        accel = CreateAccelerator(versat);
-        inst = CreateFUInstance(accel, type, MakeSizedString("Test"));
-
-        return ComplexMultiplierInstance(accel, input1, input2);
-
-    case Instruction::OLOAD:
-        type = GetTypeByName(versat, MakeSizedString("ComplexAdder"));
-        assert(type != nullptr);
-
-        accel = CreateAccelerator(versat);
-        inst = CreateFUInstance(accel, type, MakeSizedString("Test"));
-
-        return ComplexAdderInstance(accel, arrays[node.var][0].initial, -2048) >> 2;
-
-    case Instruction::LOAD:
-        return arrays[node.var][input1].initial;
-
-    case Instruction::STORE:
-        arrays[node.var][input1].initial = input2;
-        return input2;
-
-    default:
-        std::cerr << "Unsupported operation " << static_cast<int>(node.instr) << '\n';
-        assert(0);
-    }
-}
-
 TEST_FILE(MorpherApplication){
     std::chrono::time_point<std::chrono::high_resolution_clock> start, end;
     std::chrono::milliseconds elapsed;
-    std::unordered_map<std::string, std::vector<ArrayElem>> initialArrays;
-    int res;
-    size_t size = 0, incr = 0;
 
-    auto arrays = ReadArrays(data_file);
-    initialArrays = arrays;
-    auto xml_dfg = ReadDFG(dfg_file);
+    MorpherInterpreter interpreter = MorpherInterpreter(versat, dfg_file, data_file);  
 
-    arrays.erase("loopstart");
-    arrays.erase("loopend");
-
-    assert(!arrays.empty());
-    assert(!xml_dfg.empty());
-
-    incr = GetLoopIncrement(xml_dfg);
-    assert(incr);
-
-    size = GetLoopLength(xml_dfg);
-
-    InstructionNode store_node;
-    for (auto& node : xml_dfg)
-        if (node.second.instr == Instruction::STORE) {
-            store_node = node.second;
-            break;
-        }
-    assert(store_node.instr == Instruction::STORE);
-    assert(!store_node.inputs.empty());
-
-    start = std::chrono::high_resolution_clock::now();
-
-    for(size_t i = GetLoopStart(xml_dfg); i < size; i += incr)
-        RunInstruction(versat, arrays, i, xml_dfg, store_node);
-
-    end = std::chrono::high_resolution_clock::now();
-    elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(end - start);
-
-    std::cout << "Elapsed time: " << elapsed.count() << "ms\n";
-
-    for (auto& array : arrays)
-        for (size_t i = 0; i < array.second.size(); i++)
-            if (array.second[i].initial != array.second[i].final) {
-                std::cout << "ERROR - " << array.first << "[" << i << "]: "
-                    << array.second[i].initial << " != " << array.second[i].final << '\n';
-                return TestInfo(0);
-            }
-
-    return TestInfo(1); 
-}
-
-TEST_FILES(MorpherNestedLoop) {
-    for (const auto& dir_entry :
-            std::filesystem::recursive_directory_iterator(data_files_path)) {
-        TestInfo test = MorpherApplication(versat, testNumber, dfg_file,
-                dir_entry.path().c_str());
-        if (test.testsPassed != test.numberTests)
-            return test;
-    }
-
-    return TestInfo(1);
+    return TestInfo(interpreter.Run());
 }
 
 TEST(DotProduct){
@@ -1007,31 +635,27 @@ TEST(DisplayMorpherDFG){
         currentTest += 1;                                               \
     } while (0)
 
-#define TEST_MORPHER_APPLICATION(ENABLED, TEST_NAME, OPERATION)         \
-    do {                                                                \
-        if (ENABLE_TEST(ENABLED)) {                                     \
-            TestInfo test = TEST_NAME(versat, currentTest,              \
-                "morpher_files/" OPERATION "/" OPERATION ".xml",        \
-                "morpher_files/" OPERATION "/" OPERATION ".csv");       \
-            if (test.testsPassed == test.numberTests)                   \
-                printf("%32s [%02d] - OK\n", #OPERATION, currentTest);  \
-            info += test;                                               \
-        }                                                               \
-        currentTest += 1;                                               \
+#define TEST_MORPHER_APPLICATION_FILES(ENABLED, OPERATION, DFG_FILE, DATA_LOC)  \
+    do {                                                                        \
+        if (ENABLE_TEST(ENABLED)) {                                             \
+            TestInfo test = MorpherApplication(versat, currentTest, DFG_FILE,   \
+                DATA_LOC);                                                      \
+            if (test.testsPassed == test.numberTests)                           \
+                printf("%32s [%02d] - OK\n", #OPERATION, currentTest);          \
+            info += test;                                                       \
+        }                                                                       \
+        currentTest += 1;                                                       \
     } while (0)
 
-#define TEST_MORPHER_NESTED_LOOP_APPLICATION(ENABLED, TEST_NAME, OPERATION) \
-    do {                                                                    \
-        if (ENABLE_TEST(ENABLED)) {                                         \
-            TestInfo test = TEST_NAME(versat, currentTest,                  \
-                "morpher_files/" OPERATION "/" OPERATION ".xml",            \
-                "morpher_files/" OPERATION "/inputs");                      \
-            if (test.testsPassed == test.numberTests)                       \
-                printf("%32s [%02d] - OK\n", #OPERATION, currentTest);      \
-            info += test;                                                   \
-        }                                                                   \
-        currentTest += 1;                                                   \
-    } while (0)
+#define TEST_MORPHER_APPLICATION(ENABLED, OPERATION)        \
+    TEST_MORPHER_APPLICATION_FILES(ENABLED, OPERATION,      \
+        "morpher_files/" OPERATION "/" OPERATION ".xml",    \
+        "morpher_files/" OPERATION "/" OPERATION ".csv")
+
+#define TEST_MORPHER_NESTED_LOOP_APPLICATION(ENABLED, OPERATION)        \
+    TEST_MORPHER_APPLICATION_FILES(ENABLED, OPERATION,                  \
+        "morpher_files/" OPERATION "/" OPERATION ".xml",                \
+        "morpher_files/" OPERATION "/inputs")
 
 void AutomaticTests(Versat* versat){
     TestInfo info = TestInfo(0,0);
@@ -1040,14 +664,14 @@ void AutomaticTests(Versat* versat){
 
 #ifdef USE_MORPHER
     TEST_INST(0, DisplayMorpherDFG);
-    TEST_MORPHER_APPLICATION(1, MorpherApplication, "ArrayAdd");
-    TEST_MORPHER_APPLICATION(1, MorpherApplication, "ElemProd");
-    TEST_MORPHER_APPLICATION(1, MorpherApplication, "Conv2");
-    TEST_MORPHER_APPLICATION(1, MorpherApplication, "Conv3");
-    TEST_MORPHER_NESTED_LOOP_APPLICATION(1, MorpherNestedLoop, "Kernel");
+    TEST_INST(0, DotProduct);
 
-    // TEST_INST(1, DotProduct);
-#endif  // USE_MORPHER
+    TEST_MORPHER_APPLICATION(1, "ArrayAdd");
+    TEST_MORPHER_APPLICATION(1, "ElemProd");
+    TEST_MORPHER_APPLICATION(1, "Conv2");
+    TEST_MORPHER_APPLICATION(1, "Conv3");
+    TEST_MORPHER_NESTED_LOOP_APPLICATION(1, "Kernel");
+#endif
 
 #if 0
 #if 1

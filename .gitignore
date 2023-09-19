@@ -28,6 +28,7 @@ software/*/*
 !software/firmware/AES256/
 !software/firmware/MCELIECE/
 !software/firmware/units/
+!software/firmware/morpher-interpreter/
 
 !software/console/console
 !software/console/eth_console
