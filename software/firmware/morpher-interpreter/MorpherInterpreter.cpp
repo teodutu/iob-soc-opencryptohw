@@ -1,6 +1,6 @@
 #include "MorpherInterpreter.h"
 
-size_t GetLoopLength(std::unordered_map<size_t, DFGNode> dfg) {
+size_t MorpherInterpreter::GetLoopLength() {
     DFGNode cmp_node, add_node, select_node;
 
     for (auto& node : dfg) {
@@ -22,7 +22,7 @@ size_t GetLoopLength(std::unordered_map<size_t, DFGNode> dfg) {
     return 0;
 }
 
-size_t GetLoopIncrement(std::unordered_map<size_t, DFGNode> dfg) {
+size_t MorpherInterpreter::GetLoopIncrement() {
     DFGNode cmp_node, add_node, select_node;
 
     for (auto& node : dfg) {
@@ -44,24 +44,66 @@ size_t GetLoopIncrement(std::unordered_map<size_t, DFGNode> dfg) {
     return 0;
 }
 
-size_t GetLoopStart(std::unordered_map<size_t, DFGNode> dfg) {
-    DFGNode select_node;
+size_t MorpherInterpreter::GetLoopStart() {
+    DFGNode cmerge_node, loadb_node;
+    int earliest_alap = __INT_MAX__;
+    size_t loop_start;
+
+    for (auto& node : dfg)
+        if (node.second.instr == Instruction::LOADB) {
+            loadb_node = node.second;
+            break;
+        }
+
+    assert(loadb_node.instr == Instruction::LOADB);
+    assert(!loadb_node.outputs.empty());
+
+    for (auto& output : loadb_node.outputs) {
+        cmerge_node = dfg[output];
+        if (cmerge_node.instr == Instruction::CMERGE && cmerge_node.alap < earliest_alap) {
+            loop_start = cmerge_node.const_val;
+            earliest_alap = cmerge_node.alap;
+        }
+    }
+
+    return loop_start;
+}
+
+void MorpherInterpreter::FindAccumulators()
+{
+    std::string accumulator;
+    DFGNode ostore_node, op_node, select_node;
+
 
     for (auto& node : dfg) {
-        if (node.second.instr == Instruction::SELECT)
-            select_node = node.second;
+        ostore_node = node.second;
+
+        if (ostore_node.instr == Instruction::OSTORE)
+            accumulator = ostore_node.var;
+
+        if (ostore_node.inputs.empty())
+            continue;
+
+        op_node = dfg[ostore_node.inputs[0]];
+
+        for (auto& input : op_node.inputs) {
+            select_node = dfg[input];
+            if (select_node.instr == Instruction::SELECT)
+                accumulators[select_node.idx] = accumulator;
+        }
+                
     }
+}
 
-    assert(select_node.instr == Instruction::SELECT);
-    assert(!select_node.inputs.empty());
+void MorpherInterpreter::FindStoreNodes()
+{
+    DFGNode store_node;
 
-    for (auto& input : select_node.inputs) {
-        DFGNode cmerge_node = dfg[input];
-        if (cmerge_node.instr == Instruction::CMERGE && cmerge_node.const_val != -1)
-            return cmerge_node.const_val;
+    for (auto& node : dfg) {
+        store_node = node.second;
+        if (store_node.instr == Instruction::STORE || store_node.instr == Instruction::OSTORE)
+            store_nodes.emplace_back(store_node);
     }
-
-    return 0;
 }
 
 MorpherInterpreter::MorpherInterpreter(Versat* versat, const char* dfg_file, const char* data_location):
@@ -80,6 +122,14 @@ MorpherInterpreter::MorpherInterpreter(Versat* versat, const char* dfg_file, con
 
     dfg = ReadDFG(dfg_file);
     assert(!dfg.empty());
+
+    increment = GetLoopIncrement();
+    assert(increment);
+
+    loop_size = GetLoopLength();
+    loop_start = GetLoopStart();
+    FindAccumulators();
+    FindStoreNodes();
 }
 
 static int ComplexAdderInstance(Accelerator* accel,int a,int b){
@@ -122,8 +172,6 @@ int MorpherInterpreter::RunInstruction(size_t loop_idx, const DFGNode& node) {
     FUDeclaration* type;
     int input1, input2, res;
 
-    // std::cerr << "RunInstruction --- " << node.idx << '\n';
-
     if (node.instr == Instruction::STORE && node.inputs.size() > 2) {
         input1 = RunInstruction(loop_idx, dfg[node.inputs[0]]);
         input2 = RunInstruction(loop_idx, dfg[node.inputs[1]]);
@@ -138,36 +186,27 @@ int MorpherInterpreter::RunInstruction(size_t loop_idx, const DFGNode& node) {
             input2 = node.const_val;
     }
 
-    // std::cerr << "RunInstruction --- " << node.idx << " after ifs\n";
-
     switch (node.instr) {
     case Instruction::SELECT:
+        if (node.inputs.size() > 2)
+            return arrays[accumulators[node.idx]][0].initial;
+
         return loop_idx;
 
     case Instruction::LS:
-        // std::cerr << "LS --- input1 = " << input1 << "\n";
         return input1;
 
     case Instruction::ADD:
-        // std::cerr << "ADD --- input1 = " << input1 << "; input2 = " << input2
-        //     << "; versat = " << versat << "\n";
         type = GetTypeByName(versat, MakeSizedString("ComplexAdder"));
         assert(type != nullptr);
 
-        // std::cerr << "ADD --- type not null\n";
-
         accel = CreateAccelerator(versat);
         assert(accel != nullptr);
-        // std::cerr << "ADD --- accel not null\n";
 
         inst = CreateFUInstance(accel, type, MakeSizedString("Test"));
         assert(inst != nullptr);
 
-        // std::cerr << "ADD --- inst not null\n";
-
         res = ComplexAdderInstance(accel, input1, input2);
-        // std::cerr << "ADD --- res = " << res << "\n";
-
         return res;
 
     case Instruction::SHL:
@@ -180,7 +219,8 @@ int MorpherInterpreter::RunInstruction(size_t loop_idx, const DFGNode& node) {
         accel = CreateAccelerator(versat);
         inst = CreateFUInstance(accel, type, MakeSizedString("Test"));
 
-        return ComplexMultiplierInstance(accel, input1, input2);
+        res = ComplexMultiplierInstance(accel, input1, input2);
+        return res;
 
     case Instruction::OLOAD:
         type = GetTypeByName(versat, MakeSizedString("ComplexAdder"));
@@ -189,13 +229,17 @@ int MorpherInterpreter::RunInstruction(size_t loop_idx, const DFGNode& node) {
         accel = CreateAccelerator(versat);
         inst = CreateFUInstance(accel, type, MakeSizedString("Test"));
 
-        return ComplexAdderInstance(accel, arrays[node.var][0].initial, -2048) >> 2;
+        res = ComplexAdderInstance(accel, arrays[node.var][0].initial, -2048) >> 2;
+        return res;
 
     case Instruction::LOAD:
         return arrays[node.var][input1].initial;
 
+    case Instruction::OSTORE:
+        arrays[node.var][0].initial = input1;
+        return input1;
+
     case Instruction::STORE:
-        // std::cerr << "STORE --- input1 = " << input1 << "; input2 = " << input2 <<     "\n";
         arrays[node.var][input1].initial = input2;
         return input2;
 
@@ -229,22 +273,9 @@ bool MorpherInterpreter::RunLoop(const char* data_file)
     arrays.erase("loopend");
     initialArrays = arrays;
 
-    increment = GetLoopIncrement(dfg);
-    assert(increment);
-
-    loop_size = GetLoopLength(dfg);
-
-    DFGNode store_node;
-    for (auto& node : dfg)
-        if (node.second.instr == Instruction::STORE) {
-            store_node = node.second;
-            break;
-        }
-    assert(store_node.instr == Instruction::STORE);
-    assert(!store_node.inputs.empty());
-
-    for(size_t i = GetLoopStart(dfg); i < loop_size; i += increment)
-        RunInstruction(i, store_node);
+    for (size_t i = loop_start; i < loop_size; i += increment)
+        for (auto& store_node : store_nodes)
+            RunInstruction(i, store_node);
 
     for (auto& array : arrays)
         for (size_t i = 0; i < array.second.size(); i++)

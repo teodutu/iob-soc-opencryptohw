@@ -25,6 +25,7 @@ enum class Instruction
     LOAD,
     OLOAD,
     STORE,
+    OSTORE,
     LOADB,
     STOREB,
     LS,
@@ -37,9 +38,9 @@ enum class Instruction
 struct DFGNode
 {
     Instruction instr;
-    int const_val, offset;
+    int const_val, offset, asap, alap;
     size_t idx;
-    std::string var;
+    std::string var, bb;
     std::vector<size_t> inputs;
     std::vector<size_t> outputs;
 

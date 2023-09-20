@@ -34,6 +34,8 @@ static Instruction CreateInstruction(const char* instruction_str)
         return Instruction::OLOAD;
     else if (!strcmp(instruction_str, "STORE"))
         return Instruction::STORE;
+    else if (!strcmp(instruction_str, "OSTORE"))
+        return Instruction::OSTORE;
     else if (!strcmp(instruction_str, "LOADB"))
         return Instruction::LOADB;
     else if (!strcmp(instruction_str, "STOREB"))
@@ -72,6 +74,9 @@ std::unordered_map<size_t, DFGNode> ReadDFG(const char* xml_file)
 
         instr_node.instr = CreateInstruction(node.child_value("OP"));
         instr_node.var = node.child_value("BasePointerName");
+        instr_node.bb = node.child_value("BB");
+        instr_node.asap = node.attribute("ASAP").as_int();
+        instr_node.alap = node.attribute("ALAP").as_int();
 
         pugi::xml_attribute const_attr = node.attribute("CONST");
         if (const_attr)
