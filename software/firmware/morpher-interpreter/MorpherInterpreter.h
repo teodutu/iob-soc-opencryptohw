@@ -20,10 +20,10 @@ class MorpherInterpreter
 {
 private:
     bool nested_loop;
-
     int increment;
     size_t loop_size, loop_start;
 
+    DFGNode loop_select_node;
     Versat* versat;
 
     std::unordered_map<std::string, std::vector<ArrayElem>> arrays;
@@ -35,15 +35,15 @@ private:
 
     // int interpret(AddNode* node);
 
-    int RunInstruction(size_t loop_idx, const DFGNode& node);
+    int RunInstruction(size_t loop_idx, const DFGNode& node, const DFGNode& next_node);
 
     bool RunLoop(const char* data_location);
 
-    size_t GetLoopLength();
-    size_t GetLoopIncrement();
-    size_t GetLoopStart();
+    bool IsNestedLoop();
+    void FindLoopVariables();
     void FindAccumulators();
     void FindStoreNodes();
+    void FindLoopSelectNode();
 
 public:
     const char* dfg_file;

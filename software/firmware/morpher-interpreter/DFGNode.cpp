@@ -20,6 +20,8 @@ static Instruction CreateInstruction(const char* instruction_str)
 {
     if (!strcmp(instruction_str, "ADD"))
         return Instruction::ADD;
+    else if (!strcmp(instruction_str, "SUB"))
+        return Instruction::SUB;
     else if (!strcmp(instruction_str, "MUL"))
         return Instruction::MUL;
     else if (!strcmp(instruction_str, "DIV"))
@@ -44,6 +46,8 @@ static Instruction CreateInstruction(const char* instruction_str)
         return Instruction::LS;
     else if (!strcmp(instruction_str, "CMERGE"))
         return Instruction::CMERGE;
+    else if (!strcmp(instruction_str, "CGT"))
+        return Instruction::CGT;
     else if (!strcmp(instruction_str, "MOVC"))
         return Instruction::MOVC;
     else if (!strcmp(instruction_str, "CMP"))
@@ -100,6 +104,20 @@ std::unordered_map<size_t, DFGNode> ReadDFG(const char* xml_file)
 
         dfg[instr_node.idx] = instr_node;
     }
+
+    // std::vector<DFGNode> nodes;
+    // for (auto& node : dfg)
+    //     nodes.emplace_back(node.second);
+
+    // std::sort(nodes.begin(), nodes.end(), [](const DFGNode& a, const DFGNode& b) {
+    //     if (a.asap == b.asap)
+    //         return a.alap < b.alap;
+    //     else
+    //         return a.asap < b.asap;
+    // });
+
+    // for (auto& node : nodes)
+    //     std::cerr << "Node " << node.idx << ": asap = " << node.asap << ", alap = " << node.alap << '\n';
 
     return dfg;
 }

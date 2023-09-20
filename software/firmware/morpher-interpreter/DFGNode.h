@@ -6,6 +6,7 @@
 #include <unordered_map>
 #include <iostream>
 #include <cassert>
+#include <algorithm>
 
 #include <string.h>
 
@@ -30,6 +31,7 @@ enum class Instruction
     STOREB,
     LS,
     CMERGE,
+    CGT,
     MOVC,
     CMP,
     SELECT,
