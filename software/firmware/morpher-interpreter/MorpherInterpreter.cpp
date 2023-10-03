@@ -208,7 +208,6 @@ int MorpherInterpreter::RunInstruction(size_t loop_idx, const DFGNode& node, con
         assert(inst != nullptr);
 
         res = ComplexAdderInstance(accel, input1, input2);
-        std::cerr << "ADD " << node.idx << ": " << input1 << " + " << input2 << " = " << res << '\n';
         return res;
 
     case Instruction::SHL:
@@ -224,7 +223,6 @@ int MorpherInterpreter::RunInstruction(size_t loop_idx, const DFGNode& node, con
         inst = CreateFUInstance(accel, type, MakeSizedString("Test"));
 
         res = ComplexMultiplierInstance(accel, input1, input2);
-        std::cerr << "MUL " << node.idx << ": " << input1 << " * " << input2 << " = " << res << '\n';
         return res;
 
     case Instruction::OLOAD:
@@ -267,7 +265,6 @@ bool MorpherInterpreter::Run()
 
     for (const auto& dir_entry :
             std::filesystem::recursive_directory_iterator(data_location)) {
-        std::cerr << "Running " << dir_entry.path() << '\n';
         auto res = RunLoop(dir_entry.path().c_str());
         if (!res)
             return false;

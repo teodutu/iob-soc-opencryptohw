@@ -78,6 +78,20 @@ ifeq ($(USE_MORPHER), 1)
 SRC+=$(XML_DIR)/src/pugixml.cpp $(MORPHER_DIR)/*.cpp
 INCLUDE+=-I$(XML_DIR)/src -I$(MORPHER_DIR)/
 DEFINE+=$(defmacro)USE_MORPHER
+
+ifeq ($(USE_MORPHER_SCRIPT), 1)
+DEFINE+=$(defmacro)USE_MORPHER_SCRIPT
+
+ifneq ($(APP_NAME),)
+DEFINE+=$(defmacro)APP_NAME=$(APP_NAME)
+endif
+
+ifneq ($(NESTED_LOOP),)
+DEFINE+=$(defmacro)NESTED_LOOP=$(NESTED_LOOP)
+else
+DEFINE+=$(defmacro)NESTED_LOOP=0
+endif
+endif
 endif
 
 FW_EMUL=fw_emul

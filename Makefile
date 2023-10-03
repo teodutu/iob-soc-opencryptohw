@@ -75,6 +75,10 @@ morpher-build:
 morpher-test:
 	make -C $(PC_DIR) test USE_MORPHER=1
 
+morpher-script-test:
+	make -C $(PC_DIR) test USE_MORPHER=1 USE_MORPHER_SCRIPT=1 \
+		APP_NAME=$(APP_NAME) NESTED_LOOP=$(NESTED_LOOP)
+
 morpher-clean: pc-emul-clean
 
 #

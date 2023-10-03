@@ -657,74 +657,42 @@ TEST(DisplayMorpherDFG){
         "morpher_files/" OPERATION "/" OPERATION ".xml",                \
         "morpher_files/" OPERATION "/inputs")
 
+#define STRINGIFY(x) #x
+#define TOSTRING(x) STRINGIFY(x)
+
 void AutomaticTests(Versat* versat){
     TestInfo info = TestInfo(0,0);
     int hardwareTest = HARDWARE_TEST;
     int currentTest = 0;
 
 #ifdef USE_MORPHER
+#ifndef USE_MORPHER_SCRIPT
     TEST_INST(0, DisplayMorpherDFG);
     TEST_INST(0, DotProduct);
 
-    // TEST_MORPHER_APPLICATION(1, "ArrayAdd");
-    // TEST_MORPHER_APPLICATION(1, "ElemProd");
-    // TEST_MORPHER_APPLICATION(1, "ArrayCond");
-    // TEST_MORPHER_APPLICATION(1, "Conv2");
-    // TEST_MORPHER_APPLICATION(1, "Conv3");
-    // TEST_MORPHER_NESTED_LOOP_APPLICATION(1, "Kernel");
-    // TEST_MORPHER_APPLICATION(1, "Sum");
-    // TEST_MORPHER_APPLICATION(1, "Mac");
-    // TEST_MORPHER_APPLICATION(1, "Mac2");
-    // TEST_MORPHER_APPLICATION(1, "Mults2");
-    TEST_MORPHER_NESTED_LOOP_APPLICATION(1, "HPCG");
-#endif
+    TEST_MORPHER_APPLICATION(1, "ArrayAdd");
+    TEST_MORPHER_APPLICATION(1, "ElemProd");
+    TEST_MORPHER_APPLICATION(1, "ArrayCond");
+    TEST_MORPHER_APPLICATION(1, "Conv2");
+    TEST_MORPHER_APPLICATION(1, "Conv3");
+    TEST_MORPHER_NESTED_LOOP_APPLICATION(1, "Kernel");
+    TEST_MORPHER_APPLICATION(1, "Sum");
+    TEST_MORPHER_APPLICATION(1, "Mac");
+    TEST_MORPHER_APPLICATION(1, "Mac2");
+    TEST_MORPHER_APPLICATION(1, "Mults2");
+#else  // USE_MORPHER_SCRIPT
+#if NESTED_LOOP != 0
+    TEST_MORPHER_NESTED_LOOP_APPLICATION(1, TOSTRING(APP_NAME));
+#else
+    TEST_MORPHER_APPLICATION(1, TOSTRING(APP_NAME));
+#endif  // NESTED_LOOP
+#endif  // USE_MORPHER_SCRIPT
+#endif  // USE_MORPHER
 
 #if 0
-#if 1
-    TEST_INST( 1 ,TestMStage);
-    TEST_INST( 1 ,TestFStage);
-    TEST_INST( 1 ,SHA);
-    TEST_INST( 1 ,MultipleSHATests);
-#endif
-#if 1
-    TEST_INST( 1 ,VReadToVWrite);
-    TEST_INST( 0 ,StringHasher);
-    TEST_INST( 1 ,Convolution);
-    TEST_INST( 1 ,MatrixMultiplication);
-    TEST_INST( 1 ,MatrixMultiplicationVRead);
-    TEST_INST( 1 ,VersatAddRoundKey);
-    TEST_INST( 1 ,LookupTable);
-    TEST_INST( 1 ,VersatSubBytes);
-    TEST_INST( 1 ,VersatShiftRows);
-#endif
-#if 1
-    TEST_INST( 1 ,VersatDoRows);
-    TEST_INST( 1 ,VersatMixColumns);
-    TEST_INST( 1 ,FirstLineKey);
-    TEST_INST( 1 ,KeySchedule);
-    TEST_INST( 1 ,AESRound);
-    TEST_INST( 0 ,AES);
-    TEST_INST( 1 ,ReadWriteAES);
-    TEST_INST( 1 ,SimpleAdder);
-    TEST_INST( 1 ,ComplexMultiplier);
-#endif
-#if 1
-    TEST_INST( 1 ,SimpleShareConfig);
-    TEST_INST( 1 ,ComplexShareConfig);
-#endif
-#if 0
-    TEST_INST( 1 ,SimpleFlatten);
-    TEST_INST( 1 ,FlattenShareConfig);
-    TEST_INST( 1 ,ComplexFlatten);
-    TEST_INST( 1 ,FlattenSHA); // Problem on top level static buffers. Maybe do flattening of accelerators with buffers already fixed.
-#endif
-#if 1
-    TEST_INST( 1 ,SimpleMergeNoCommon);
-    TEST_INST( 1 ,SimpleMergeUnitCommonNoEdge);
-    TEST_INST( 1 ,SimpleMergeUnitAndEdgeCommon);
-    TEST_INST( 1 ,SimpleMergeInputOutputCommon);
-    TEST_INST( 0 ,ComplexMerge);
-#endif
+   TEST_INST( 1 ,SHA);                  // HARDWARE_TEST = 0
+   TEST_INST( 1, AESWithIterative);     // HARDWARE_TEST = 1
+   TEST_INST( 1, VectorLikeOperation); // HARDWARE_TEST = 2
 #endif
 
     //Free(versat);
