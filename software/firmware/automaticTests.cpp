@@ -354,67 +354,6 @@ TEST(FlattenShareConfig){
     return EXPECT("4 6 8 7","%d %d %d %d",res0,res1,res2,res3);
 }
 
-TEST(FlattenSHA){
-    FUDeclaration* type = GetTypeByName(versat,MakeSizedString("SHA"));
-    Accelerator* accel = CreateAccelerator(versat);
-    FUInstance* inst = CreateFUInstance(accel,type,MakeSizedString("Test"));
-
-    Accelerator* flatten = Flatten(versat,accel,99);
-
-    SetSHAAccelerator(flatten,nullptr);
-
-    InitVersatSHA(versat,true);
-
-    unsigned char digest[256];
-    for(int i = 0; i < 256; i++){
-        digest[i] = 0;
-    }
-
-   // printf("config mask\n");
-   FUInstance* maskInst = GetInstanceByName(accel,"Test","mask");
-   maskInst->config[0] = mask;
-
-   // printf("config output\n");
-   FUInstance* outputInst = GetInstanceByName(accel,"Test","output");
-   // ConfigureMemoryReceive(outputInst, VEC_SZ / 4, 1);
-   // ConfigureMemoryLinearOut(outputInst, VEC_SZ / 4);
-   ConfigureMemoryLinearOut(outputInst, VEC_SZ / 4);
-   
-   // printf("accel 1\n");
-   AcceleratorRun(accel); // Fills vread with valid data
-   // printf("accel 2\n");
-   AcceleratorRun(accel);
-
-   // printf("read results\n");
-   for (int c = 0; c < VEC_SZ/4; c++){
-        result[c] = VersatUnitRead(outputInst,c);
-   }
-   
-   // printf("output versat\n");
-   OutputVersatSource(versat,accel,".");
-
-   // printf("cmp results\n");
-   if (memcmp(result, expected, VEC_SZ/4) == 0) {
-       printf("Test Passed\n");
-       TEST_PASSED;
-   } else {
-       printf("Input:\n");
-       for(int i = 0; i < VEC_SZ/4; i++){
-          printf("0x%08x ", mat[i]);
-       }
-       printf("\nResult:\n");
-       for(int i = 0; i < VEC_SZ/4; i++){
-          printf("0x%08x ", result[i]);
-       }
-       printf("\n\nExpected:\n");
-       for(int i = 0; i < VEC_SZ/4; i++){
-          printf("0x%08x ", expected[i]);
-       }
-       TEST_FAILED("Result differ from expected value");
-   }
-
-}
-
 TEST(SHA){
    FUDeclaration* type = GetTypeByName(versat,STRING("SHA"));
    Accelerator* accel = CreateAccelerator(versat);
