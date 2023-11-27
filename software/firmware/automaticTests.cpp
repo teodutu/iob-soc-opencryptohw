@@ -549,6 +549,107 @@ TEST(DisplayMorpherDFG){
 }
 #endif // USE_MORPHER
 
+TEST(SimpleMergeNoCommon){
+   FUDeclaration* typeA = GetTypeByName(versat,MakeSizedString("SimpleAdder"));
+   FUDeclaration* typeB = GetTypeByName(versat,MakeSizedString("ComplexMultiplier"));
+
+   FUDeclaration* merged = MergeAccelerators(versat,typeA,typeB,MakeSizedString("NoCommonMerged"));
+
+   Accelerator* accel = CreateAccelerator(versat);
+   FUInstance* inst = CreateFUInstance(accel,merged,MakeSizedString("Test"));
+
+   int resA = 0;
+   int resB = 0;
+
+   resA = SimpleAdderInstance(accel,3,4);
+   resB = ComplexMultiplierInstance(accel,2,3);
+
+   OutputVersatSource(versat,accel,"versat_instance.v","versat_defs.vh","versat_data.inc");
+
+   return EXPECT("7 6","%d %d",resA,resB);
+}
+
+TEST(SimpleMergeUnitCommonNoEdge){
+   FUDeclaration* typeA = GetTypeByName(versat,MakeSizedString("SimpleAdder"));
+   FUDeclaration* typeB = GetTypeByName(versat,MakeSizedString("ComplexAdder"));
+
+   FUDeclaration* merged = MergeAccelerators(versat,typeA,typeB,MakeSizedString("UnitCommonNoEdgeMerged"));
+
+   Accelerator* accel = CreateAccelerator(versat);
+   FUInstance* inst = CreateFUInstance(accel,merged,MakeSizedString("Test"));
+
+   int resA = 0;
+   int resB = 0;
+
+   ClearConfigurations(accel);
+   resA = SimpleAdderInstance(accel,4,5);
+
+   ClearConfigurations(accel);
+   ActivateMergedAccelerator(versat,accel,typeB);
+   resB = ComplexAdderInstance(accel,2,3);
+
+   OutputVersatSource(versat,accel,"versat_instance.v","versat_defs.vh","versat_data.inc");
+
+   return EXPECT("9 5","%d %d",resA,resB);
+}
+
+TEST(SimpleMergeUnitAndEdgeCommon){
+   FUDeclaration* typeA = GetTypeByName(versat,MakeSizedString("SimpleAdder"));
+   FUDeclaration* typeB = GetTypeByName(versat,MakeSizedString("SemiComplexAdder"));
+
+   FUDeclaration* merged = MergeAccelerators(versat,typeA,typeB,MakeSizedString("UnitAndEdgeCommonMerged"));
+
+   Accelerator* accel = CreateAccelerator(versat);
+   FUInstance* inst = CreateFUInstance(accel,merged,MakeSizedString("Test"));
+
+   int resA = 0;
+   int resB = 0;
+
+   //ClearConfigurations(accel);
+   resA = SimpleAdderInstance(accel,4,5);
+
+   //ClearConfigurations(accel);
+   ActivateMergedAccelerator(versat,accel,typeB);
+   resB = SemiComplexAdderInstance(accel,2,3);
+
+   OutputVersatSource(versat,accel,"versat_instance.v","versat_defs.vh","versat_data.inc");
+
+   return EXPECT("9 5","%d %d",resA,resB);
+}
+
+TEST(SimpleMergeInputOutputCommon){
+   FUDeclaration* typeA = GetTypeByName(versat,MakeSizedString("ComplexAdder"));
+   FUDeclaration* typeB = GetTypeByName(versat,MakeSizedString("ComplexMultiplier"));
+
+   FUDeclaration* merged = MergeAccelerators(versat,typeA,typeB,MakeSizedString("InputOutputCommonMerged"));
+
+   Accelerator* accel = CreateAccelerator(versat);
+   FUInstance* inst = CreateFUInstance(accel,merged,MakeSizedString("Test"));
+
+   int resA = 0;
+   int resB = 0;
+
+   //ClearConfigurations(accel);
+   resA = ComplexAdderInstance(accel,4,5);
+
+   //ClearConfigurations(accel);
+   ActivateMergedAccelerator(versat,accel,typeB);
+   resB = ComplexMultiplierInstance(accel,2,3);
+
+   OutputVersatSource(versat,accel,"versat_instance.v","versat_defs.vh","versat_data.inc");
+
+   return EXPECT("9 6","%d %d",resA,resB);
+}
+
+TEST(ComplexMerge){
+   FUDeclaration* typeA = GetTypeByName(versat,MakeSizedString("SHA"));
+   FUDeclaration* typeB = GetTypeByName(versat,MakeSizedString("ReadWriteAES"));
+
+   FUDeclaration* merged = MergeAccelerators(versat,typeA,typeB,MakeSizedString("SHA_AES"));
+
+   TEST_PASSED;
+}
+
 // When 1, need to pass 0 to enable test (changes enabler from 1 to 0)
 #define REVERSE_ENABLED 0
 
